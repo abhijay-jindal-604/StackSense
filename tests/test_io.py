@@ -95,8 +95,10 @@ class LoadTests(unittest.TestCase):
         if not pub.is_dir():
             self.skipTest("no public scenarios")
         r = load_scenarios(pub)
-        self.assertEqual(len(r), 12)
+        self.assertEqual(len(r), 6)
         self.assertTrue(all(x.load_error is None for x in r))
+        arr = load_scenarios(pub.parent / "stacksense_public_scenarios.json")
+        self.assertEqual([x.raw for x in arr], [x.raw for x in r])
 
 
 class NameWriteTests(unittest.TestCase):
