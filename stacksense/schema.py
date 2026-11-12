@@ -30,8 +30,17 @@ GEO_SPREAD = ["single_city", "single_country", "multi_region", "global"]
 LOCK_IN = ["low", "medium", "high"]
 CONSISTENCY = ["strong", "eventual", "auto"]
 DATA_SHAPE = ["auto", "relational", "document", "key_value", "time_series", "graph", "analytical"]
-NOTIFICATIONS = ["none", "email", "push", "sms"]
+NOTIFICATIONS = ["email", "push", "sms"]  # empty list means no notifications
+LICENCES = ["microsoft_enterprise", "oracle", "aws_credits", "gcp_credits", "azure_credits", "none"]
 CMS = ["auto", "none", "git_markdown", "headless"]
+
+# Constraint class of each field: hard (never violated silently), soft (traded off), info (display only).
+HARD_PATHS = {"infrastructure.data_residency", "compliance", "infrastructure.deployment_model",
+              "infrastructure.cloud_preference"}
+INFO_PATHS = {"project.name"}
+# UI step number per group.
+STEPS = {"Project": 1, "Scale": 2, "Team": 3, "Budget & timeline": 4, "Infrastructure": 5,
+         "Requirements": 6, "Compliance": 7, "Priorities": 7}
 
 # Each entry: path -> spec
 FIELDS: dict[str, dict] = {}
@@ -39,14 +48,19 @@ FIELDS: dict[str, dict] = {}
 
 def _f(path, type_, required=False, default=None, enum=None, minimum=None, maximum=None,
        group="", label="", why="", affects=(), sources=(), extra=False, item_enum=None,
-       exclusive_min=False, nullable=False, ui="auto", help_example=None):
+       exclusive_min=False, nullable=False, ui="auto", help_example=None,
+       constraint=None, step=None, unit=""):
+    if constraint is None:
+        constraint = "hard" if path in HARD_PATHS else ("info" if path in INFO_PATHS else "soft")
+    if step is None:
+        step = STEPS.get(group, 1)
     FIELDS[path] = {
         "path": path, "type": type_, "required": required, "default": default, "enum": enum,
         "item_enum": item_enum, "minimum": minimum, "maximum": maximum,
         "exclusive_min": exclusive_min, "nullable": nullable, "group": group,
         "label": label or path.split(".")[-1].replace("_", " "), "why": why,
         "affects": list(affects), "sources": list(sources), "extra": extra, "ui": ui,
-        "example": help_example,
+        "example": help_example, "constraint": constraint, "step": step, "unit": unit,
     }
 
 
@@ -132,6 +146,11 @@ _f("timeline.mvp_weeks", "integer", required=True, minimum=1, group="Budget & ti
    why="Short timelines favour batteries-included frameworks, BaaS and managed services, and "
        "cross-platform clients.", affects=["frontend", "backend", "hosting", "warnings"])
 
+_f("team.growth_12_months", "integer", minimum=0, group="Team", label="Team size after 12 months", extra=True,
+   why="Hiring plans change the architecture horizon: a team expected to triple can justify module "
+       "boundaries earlier, while a flat team should keep one deployable. Defaults to team.size.",
+   affects=["architecture_style", "backend", "warnings"], sources=["team_topologies", "fowler_monolith_first"])
+
 # ---------------------------------------------------------------- infrastructure
 _f("infrastructure.cloud_preference", "enum", default="any", enum=CLOUDS, group="Infrastructure",
    label="Cloud preference",
@@ -151,6 +170,11 @@ _f("infrastructure.existing_systems", "list", default=[], group="Infrastructure"
    why="Reuse beats rebuild: existing identity providers, databases and codebases bias choices, and "
        "end-of-life systems are flagged.", affects=["backend", "database", "supporting", "warnings"],
    sources=["endoflife_date", "ms_lifecycle"])
+_f("infrastructure.existing_licences", "list", default=[], item_enum=LICENCES, group="Infrastructure",
+   label="Existing licences and credits", extra=True,
+   why="Cloud credits and enterprise licences make one provider effectively cheaper or free; Microsoft or "
+       "Oracle licences favour their own runtimes and databases. Used as a soft bias, never as a hard filter.",
+   affects=["hosting", "database", "backend", "cost"], sources=["aws_pricing", "azure_appservice_pricing", "gcp_run_pricing"])
 _f("infrastructure.lock_in_tolerance", "enum", default="medium", enum=LOCK_IN, group="Infrastructure",
    label="Vendor lock-in tolerance", extra=True,
    why="Low tolerance penalises proprietary BaaS/serverless APIs (Firebase, DynamoDB, Workers-only APIs) "
@@ -236,7 +260,15 @@ for _k in PRIORITY_KEYS:
 
 SECTIONS = ["project", "scale", "team", "budget", "timeline", "infrastructure", "requirements",
             "compliance", "priorities"]
-TOP_LEVEL_ALLOWED = set(SECTIONS) | {"scenario_id", "options"}
+TOP_LEVEL_ALLOWED = set(SECTIONS) | {"scenario_id"}
+
+_UNITS = {"scale.users_at_launch": "users", "scale.users_12_months": "users",
+          "scale.peak_concurrent_users": "users", "scale.data_volume_gb_12_months": "GB",
+          "scale.peak_rps": "requests/s", "team.size": "engineers", "team.growth_12_months": "engineers",
+          "budget.monthly_infra_usd": "USD/month", "timeline.mvp_weeks": "weeks",
+          "requirements.p95_latency_ms": "ms", "requirements.availability": "%"}
+for _p, _u in _UNITS.items():
+    FIELDS[_p]["unit"] = _u
 
 
 def required_paths() -> list[str]:
@@ -249,3 +281,16 @@ def schema_for_ui() -> dict:
     for spec in FIELDS.values():
         groups.setdefault(spec["group"], []).append(spec)
     return {"groups": [{"name": g, "fields": f} for g, f in groups.items()]}
+
+
+# Research sources for the StackSense extras that were declared without any.
+_EXTRA_SOURCES = {
+    "scale.peak_rps": ["aws_well_architected"],
+    "requirements.background_jobs": ["sqs_docs", "pgboss"],
+    "requirements.cms": ["payload_docs", "hugo_docs"],
+    "infrastructure.lock_in_tolerance": ["aws_well_architected"],
+    "team.willing_to_learn": ["so_survey_2025"],
+    "infrastructure.open_source_only": ["db_engines"],
+}
+for _p, _s in _EXTRA_SOURCES.items():
+    FIELDS[_p]["sources"] = list(_s)
