@@ -9,7 +9,7 @@ from . import engine, output
 from .io import load_scenarios, output_name, write_output
 from .validate import validate
 
-_LATER = ("serve", "wizard", "explain", "diff", "kb")
+_LATER = ("serve", "wizard", "explain", "diff")
 _PUBLIC_DIR = Path(__file__).resolve().parent.parent / "scenarios" / "public"
 
 
@@ -112,6 +112,38 @@ def _cmd_later(args) -> int:
     return 2
 
 
+def _cmd_kb(args) -> int:
+    import json
+
+    from . import kb
+    action = args.kb_action
+    if action == "export":
+        text = json.dumps(kb.export(), indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+        if args.out:
+            try:
+                with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(text)
+            except OSError as e:
+                _err(f"cannot write {args.out}: {e.strerror or e}")
+                return 2
+            _out(f"kb {kb.kb_version()}: wrote {args.out}")
+        else:
+            sys.stdout.write(text)
+        return 0
+    if action == "stats":
+        st = kb.stats()
+        _out(f"kb_version {st['kb_version']}: {st['records']} records, {st['offerings']} offerings, "
+             f"{st['sources_registered']} sources ({st['sources_cited_by_records']} cited)")
+        for layer in kb.LAYERS:
+            _out(f"  {layer:<16} {st['maintained_per_layer'][layer]:>3} / min {st['minimum_per_layer'][layer]}")
+        return 0
+    problems = kb.check()
+    for p in problems:
+        _out(p)
+    _out(f"kb check: {len(problems)} problem(s)")
+    return 1 if problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="stacksense", description="StackSense tech stack recommendation engine")
     sub = ap.add_subparsers(dest="command", metavar="command")
@@ -128,6 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
     v.set_defaults(func=_cmd_validate)
     s = sub.add_parser("selftest", help="run the public scenarios and check output conformance")
     s.set_defaults(func=_cmd_selftest)
+    k = sub.add_parser("kb", help="knowledge base: export, stats, check")
+    ksub = k.add_subparsers(dest="kb_action", metavar="action", required=True)
+    ke = ksub.add_parser("export", help="dump the knowledge base as JSON")
+    ke.add_argument("-o", "--out", default=None)
+    ksub.add_parser("stats", help="record counts per layer")
+    ksub.add_parser("check", help="integrity and minimum-count problems (exit 1 if any)")
+    k.set_defaults(func=_cmd_kb)
     for name in _LATER:
         p = sub.add_parser(name, help="not available yet", add_help=False)
         p.add_argument("rest", nargs=argparse.REMAINDER)
