@@ -143,5 +143,25 @@ class WarningShapeTests(unittest.TestCase):
         self.assertTrue(any("severity" in e for e in errs) and any("fields" in e for e in errs))
 
 
+class ReviewRegressionTests(unittest.TestCase):
+    def test_summary_non_empty(self):
+        r = ok_result()
+        r["summary"] = "  "
+        self.assertTrue(any(e.startswith("summary") for e in output.check(r)))
+        self.assertNotEqual(output.build(status="ok")["summary"], "")
+
+    def test_infeasible_needs_critical(self):
+        r = output.build(status="infeasible", warnings=[{"code": "A", "severity": "info", "message": "m", "fields": []}])
+        self.assertTrue(any("critical" in e for e in output.check(r)))
+
+    def test_cost_assumptions_non_empty(self):
+        for bad in ([], [""], ["ok", "  "]):
+            r = ok_result()
+            r["estimated_monthly_cost_usd"]["assumptions"] = bad
+            self.assertTrue(any("assumptions" in e for e in output.check(r)), bad)
+        r = output.build(status="invalid_input", validation_errors=[{"field": "$", "message": "x"}])
+        self.assertEqual(r["estimated_monthly_cost_usd"]["assumptions"], ["No cost estimate: no stack was produced."])
+
+
 if __name__ == "__main__":
     unittest.main()

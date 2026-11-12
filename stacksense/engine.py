@@ -10,14 +10,17 @@ from .validate import validate
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
 
 
-def _scenario_id(raw: Any) -> str | None:
-    if isinstance(raw, dict) and isinstance(raw.get("scenario_id"), str):
-        return raw["scenario_id"]
-    return None
-
-
 def _warning(code: str, severity: str, message: str, fields=()) -> dict:
     return {"code": code, "severity": severity, "message": message, "fields": list(fields)}
+
+
+def _safe_scenario_id(raw: Any) -> str | None:
+    """Normalised id via validate() (used only when the pipeline itself failed)."""
+    try:
+        sid = validate(raw).profile.get("scenario_id")
+    except Exception:  # noqa: BLE001
+        return None
+    return sid if isinstance(sid, str) else None
 
 
 def recommend(raw: Any, *, fill_defaults: bool = False, trace: bool = True, llm=None) -> dict:
@@ -27,7 +30,7 @@ def recommend(raw: Any, *, fill_defaults: bool = False, trace: bool = True, llm=
     except Exception as exc:  # noqa: BLE001 - total function by contract
         return output.build(
             status="infeasible",
-            scenario_id=_scenario_id(raw),
+            scenario_id=_safe_scenario_id(raw),
             summary="The engine hit an internal error, so no stack is recommended.",
             warnings=[_warning(INTERNAL_ERROR_CODE, "critical",
                                f"Internal error ({type(exc).__name__}). Please report this input.")],
@@ -43,7 +46,7 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     v = validate(raw, fill_defaults=fill_defaults)
     sid = v.profile.get("scenario_id") if isinstance(v.profile, dict) else None
     if not isinstance(sid, str):
-        sid = _scenario_id(raw)
+        sid = None
     if v.errors:
         return output.build(status="invalid_input", scenario_id=sid, validation_errors=v.errors,
                             assumptions=v.assumptions, warnings=v.notices)
@@ -57,6 +60,7 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     warnings = list(v.notices) + [_warning(
         "ENGINE_NOT_IMPLEMENTED", "critical", "Recommendation logic is not built yet")]
     return output.build(status="infeasible", scenario_id=sid, stack=None,
+                        summary="Recommendation logic is not built yet, so no stack is recommended.",
                         warnings=warnings, assumptions=v.assumptions)
 
 

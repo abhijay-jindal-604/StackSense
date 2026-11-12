@@ -42,7 +42,7 @@ REQUIRED_FALLBACKS = {
 LANG_ALIASES = {
     "js": "javascript", "node": "javascript", "nodejs": "javascript", "node.js": "javascript",
     "ts": "typescript", "c#": "csharp", "c-sharp": "csharp", ".net": "csharp", "dotnet": "csharp",
-    "golang": "go", "py": "python", "python3": "python", "c++": "cpp", "objective-c": "swift",
+    "golang": "go", "py": "python", "python3": "python", "c++": "cpp", "objc": "objective-c", "obj-c": "objective-c",
     "rb": "ruby", "elixir": "elixir", "html5": "html", "css3": "css", "postgres": "sql",
     "postgresql": "sql", "mysql": "sql", "t-sql": "sql", "tsql": "sql", "plsql": "sql",
 }
@@ -128,6 +128,7 @@ def _validate(raw: Any, fill_defaults: bool) -> Validated:
     profile: dict[str, Any] = {}
     provided: set[str] = set()
 
+    profile["scenario_id"] = None
     if not isinstance(raw, dict):
         errors.append({"field": "$", "message": f"Scenario must be a JSON object, got {_type_name(raw)}."})
         return Validated(profile, errors, assumptions, notices, frozenset())
@@ -228,6 +229,8 @@ def _validate(raw: Any, fill_defaults: bool) -> Validated:
     if deferred_growth:
         size = profile.get("team.size")
         profile["team.growth_12_months"] = size if isinstance(size, int) else None
+        if isinstance(size, int):
+            assumptions.append(f"team.growth_12_months not given: defaulted to team.size ({size}).")
 
     extras_used = sorted(p for p, s in FIELDS.items() if s["extra"] and p in provided)
     if extras_used:
@@ -316,10 +319,12 @@ def _check_value(path, spec, value):
         if path == "requirements.availability" and isinstance(value, (int, float)) and not isinstance(value, bool):
             if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
                 return False, None, "Number must be finite (NaN and Infinity are not allowed)."
-            s = ("%g" % value)
-            if s in allowed:
-                return True, s, f"{path}: numeric {value!r} normalised to string \"{s}\"."
-            return False, None, f"Unknown value {value!r}. Allowed: {', '.join(allowed)}."
+            if abs(value) > MAX_NUM:
+                return False, None, "Number is too large (maximum 1e12)."
+            for a in allowed:
+                if value == float(a):
+                    return True, a, f"{path}: numeric {_short(value)} normalised to string \"{a}\"."
+            return False, None, f"Unknown value {_short(value)}. Allowed: {', '.join(allowed)}."
         if not isinstance(value, str):
             return False, None, f"Expected one of {', '.join(allowed)}, got {_type_name(value)} {_short(value)}."
         if len(value) > MAX_STR:
@@ -345,6 +350,10 @@ def _check_value(path, spec, value):
                 bad.append(f"item {i} is too long ({len(item)} characters; maximum {MAX_STR})")
                 continue
             v = item.strip()
+            if not v:
+                if "blank items removed" not in notes:
+                    notes.append("blank items removed")
+                continue
             if spec["item_enum"]:
                 low = v.lower()
                 if low not in spec["item_enum"]:
@@ -366,6 +375,8 @@ def _check_value(path, spec, value):
                 notes.append(f"duplicate '{item}' removed")
         if bad:
             return False, None, "; ".join(bad) + "."
+        if not out and value and not bad:
+            return False, None, "List contains only blank items; give at least one non-empty value."
         return True, out, (f"{path} normalised: " + ", ".join(notes) + ".") if notes else None
 
     return False, None, f"Unsupported type {t}"

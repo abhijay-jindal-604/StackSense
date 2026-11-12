@@ -141,12 +141,12 @@ _SAFE = re.compile(r"[^A-Za-z0-9._-]")
 def output_name(scenario_id: str | None, source_name: str, index: int | None) -> str:
     """File name for a result: ``<id>_output.json``, else ``<stem>[_<index>]_output.json``."""
     if isinstance(scenario_id, str):
-        sid = _SAFE.sub("_", scenario_id.strip()).strip(".")
+        sid = _SAFE.sub("_", scenario_id.strip())[:100].strip(".")
         if sid:
             return f"{sid}_output.json"
     stem = re.sub(r"\[\d+\]$", "", source_name)
     stem = re.sub(r"\.json$", "", stem, flags=re.IGNORECASE)
-    stem = _SAFE.sub("_", stem).strip(".") or "scenario"
+    stem = _SAFE.sub("_", stem)[:100].strip(".") or "scenario"
     if index is not None:
         stem = f"{stem}_{index}"
     return f"{stem}_output.json"

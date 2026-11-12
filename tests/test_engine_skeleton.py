@@ -27,5 +27,13 @@ class EngineSkeletonTests(unittest.TestCase):
         self.assertEqual(output.check(r), [])
 
 
+class ScenarioIdTests(unittest.TestCase):
+    def test_id_comes_from_validated_profile(self):
+        r = engine.recommend({"scenario_id": "  Z1  "})
+        self.assertEqual(r["scenario_id"], "Z1")
+        self.assertIsNone(engine.recommend({"scenario_id": ["x"]})["scenario_id"])
+        self.assertIsNone(engine.recommend(None)["scenario_id"])
+
+
 if __name__ == "__main__":
     unittest.main()

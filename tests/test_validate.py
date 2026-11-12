@@ -238,5 +238,51 @@ class ValidateTests(unittest.TestCase):
                          (b.profile, b.errors, b.assumptions, b.notices, b.provided))
 
 
+class ReviewRegressionTests(unittest.TestCase):
+    def _v(self, **kw):
+        r = base()
+        for path, val in kw.items():
+            sec, key = path.split("__")
+            r[sec][key] = val
+        return validate(r)
+
+    def test_huge_availability_no_dollar_error(self):
+        r = base()
+        r["requirements"]["availability"] = 10 ** 400
+        r["team"]["size"] = "x"
+        v = validate(r)
+        self.assertEqual(sorted(fields(v)), ["requirements.availability", "team.size"])
+        self.assertNotIn("$", fields(v))
+
+    def test_availability_exact_only(self):
+        self.assertEqual(self._v(requirements__availability=99.95).profile["requirements.availability"], "99.95")
+        self.assertEqual(self._v(requirements__availability=99).profile["requirements.availability"], "99")
+        v = self._v(requirements__availability=99.949999)
+        self.assertEqual(fields(v), ["requirements.availability"])
+        self.assertIn("99.95", v.errors[0]["message"])
+
+    def test_blank_languages(self):
+        v = self._v(team__languages=["  ", ""])
+        self.assertEqual(fields(v), ["team.languages"])
+        v = self._v(team__languages=["python", " ", ""])
+        self.assertEqual(v.errors, [])
+        self.assertEqual(v.profile["team.languages"], ["python"])
+        self.assertEqual(sum("blank items removed" in a for a in v.assumptions), 1)
+
+    def test_objective_c_not_swift(self):
+        v = self._v(team__languages=["Objective-C", "objc"])
+        self.assertNotIn("swift", v.profile["team.languages"])
+
+    def test_growth_default_assumption_and_scenario_id(self):
+        r = base()
+        r["team"].pop("growth_12_months", None)
+        v = validate(r)
+        self.assertTrue(any("team.growth_12_months" in a and "team.size" in a for a in v.assumptions))
+        for bad in (None, [], {"scenario_id": 5, "team": 3}, {"scenario_id": "  A  "}):
+            p = validate(bad).profile
+            self.assertIn("scenario_id", p)
+        self.assertEqual(validate({"scenario_id": "  A  "}).profile["scenario_id"], "A")
+
+
 if __name__ == "__main__":
     unittest.main()

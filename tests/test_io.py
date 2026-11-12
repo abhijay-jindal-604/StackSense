@@ -123,5 +123,11 @@ class NameWriteTests(unittest.TestCase):
             self.assertEqual(output.check(json.loads(text)), [])
 
 
+class OutputNameCapTests(unittest.TestCase):
+    def test_long_id_and_stem_capped(self):
+        self.assertEqual(len(output_name("a" * 5000, "x.json", None)), 100 + len("_output.json"))
+        self.assertEqual(len(output_name(None, "b" * 5000 + ".json", 2)), 100 + len("_2_output.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

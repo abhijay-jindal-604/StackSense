@@ -73,11 +73,11 @@ def build(
         elif status == "infeasible":
             summary = "No stack satisfies all hard constraints together, so none is recommended."
         else:
-            summary = ""
+            summary = "Recommendation produced; see the stack and warnings for details."
     if estimated_monthly_cost_usd is None:
         estimated_monthly_cost_usd = {
             "min": 0, "max": 0,
-            "assumptions": ["No cost estimate: no stack was recommended."],
+            "assumptions": ["No cost estimate: no stack was produced."],
         }
     values = {
         "scenario_id": scenario_id,
@@ -156,8 +156,8 @@ def check(result: Any) -> list[str]:
     status = result.get("status")
     if status not in STATUSES:
         errs.append(f"status: must be one of {list(STATUSES)}")
-    if not isinstance(result.get("summary"), str):
-        errs.append("summary: must be a string")
+    if not isinstance(result.get("summary"), str) or not result["summary"].strip():
+        errs.append("summary: must be a non-empty string")
     if result.get("architecture_style") not in ARCH_STYLES:
         errs.append(f"architecture_style: must be one of {list(ARCH_STYLES)}")
     elif status in ("ok", "ok_with_warnings") and result["architecture_style"] == "other":
@@ -212,8 +212,9 @@ def check(result: Any) -> list[str]:
                 errs.append("estimated_monthly_cost_usd.min: must be >= 0")
             if lo > hi:
                 errs.append("estimated_monthly_cost_usd: min must be <= max")
-        if not _is_str_list(cost.get("assumptions")):
-            errs.append("estimated_monthly_cost_usd.assumptions: must be a list of strings")
+        ca = cost.get("assumptions")
+        if not _is_str_list(ca) or not ca or not all(x.strip() for x in ca):
+            errs.append("estimated_monthly_cost_usd.assumptions: must be a non-empty list of non-empty strings")
 
     # warnings
     warns = result.get("warnings")
@@ -256,6 +257,8 @@ def check(result: Any) -> list[str]:
 
     # status vs warning severities (D7)
     sev = {w.get("severity") for w in warns if isinstance(w, dict)}
+    if status == "infeasible" and "critical" not in sev:
+        errs.append("warnings: 'infeasible' needs at least one critical warning")
     if status == "ok" and sev & {"warning", "critical"}:
         errs.append("status: 'ok' must not carry warning or critical warnings")
     if status == "ok_with_warnings" and not sev & {"warning", "critical"}:
