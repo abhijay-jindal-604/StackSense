@@ -81,6 +81,62 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(r.stdout.isascii())
 
+    def test_write_error_continues_batch(self):
+        raw = json.loads((PUBLIC / "P1.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "in"
+            src.mkdir()
+            (src / "a.json").write_text(json.dumps(raw), encoding="utf-8")
+            raw2 = dict(raw, scenario_id="ZZ_second")
+            (src / "b.json").write_text(json.dumps(raw2), encoding="utf-8")
+            out = Path(d) / "out"
+            (out / f"{raw['scenario_id']}_output.json").mkdir(parents=True)
+            r = cli("run", str(src), "-o", str(out))
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("cannot write output", r.stderr)
+            self.assertTrue((out / "ZZ_second_output.json").is_file())
+
+    def test_duplicate_scenario_ids_not_overwritten(self):
+        raw = json.loads((PUBLIC / "P1.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "in"
+            src.mkdir()
+            for n in ("a", "b", "c"):
+                (src / f"{n}.json").write_text(json.dumps(raw), encoding="utf-8")
+            out = Path(d) / "out"
+            r = cli("run", str(src), "-o", str(out), "--quiet")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            names = sorted(p.name for p in out.iterdir())
+            self.assertEqual(len(names), 3, names)
+            self.assertIn(f"{raw['scenario_id']}_output.json", names)
+            self.assertTrue(any("__b" in n for n in names), names)
+            self.assertEqual(len(r.stderr.strip().splitlines()), 2, r.stderr)
+            self.assertTrue(r.stderr.isascii())
+
+    def test_array_index_from_source_name(self):
+        from stacksense import cli as c
+        self.assertEqual(c._array_index("f.json[3]"), 3)
+        self.assertIsNone(c._array_index("f.json"))
+        raw = {"project": 5}
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "in"
+            src.mkdir()
+            (src / "a.json").write_text("{}", encoding="utf-8")
+            (src / "b.json").write_text(json.dumps([raw, raw, raw]), encoding="utf-8")
+            out = Path(d) / "out"
+            r = cli("run", str(src), "-o", str(out), "--quiet")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            names = {p.name for p in out.iterdir()}
+            self.assertIn("a_output.json", names)
+            self.assertTrue({"b_0_output.json", "b_1_output.json", "b_2_output.json"} <= names, names)
+
+    def test_exit_code_for_check_problems(self):
+        from stacksense import cli as c
+        ok = {"status": "ok"}
+        self.assertEqual(c._run_exit_code(0, [], ok), 0)
+        self.assertEqual(c._run_exit_code(0, ["bad field"], ok), 2)
+        self.assertEqual(c._run_exit_code(2, [], ok), 2)
+
     def test_later_subcommands(self):
         r = cli("serve")
         self.assertEqual(r.returncode, 2)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -44,23 +45,60 @@ def _cost(result: dict) -> str:
     return f"${c.get('min', 0)}-{c.get('max', 0)}"
 
 
+def _array_index(source_name: str):
+    """Element index from a ``file.json[n]`` source name; None for non-array files."""
+    m = re.search(r"\[(\d+)\]$", source_name)
+    return int(m.group(1)) if m else None
+
+
+def _unique_name(name: str, scenario_id, source_name: str, index, used: set) -> str:
+    """Return ``name`` unless already written this run; then add the source stem, then a counter."""
+    if name.lower() not in used:
+        return name
+    stem = re.sub(r"\[\d+\]$", "", source_name)
+    stem = re.sub(r"\.json$", "", stem, flags=re.IGNORECASE)
+    if index is not None:
+        stem = f"{stem}_{index}"
+    sid = scenario_id.strip() if isinstance(scenario_id, str) and scenario_id.strip() else "scenario"
+    alt = output_name(f"{sid}__{stem}", source_name, None)
+    cand, n = alt, 2
+    while cand.lower() in used:
+        cand = alt[:-len("_output.json")] + f"_{n}_output.json"
+        n += 1
+    return cand
+
+
+def _run_exit_code(code: int, problems, result: dict) -> int:
+    """Exit code 2 for an internal error or any output conformance problem (plan 3.16/3.20)."""
+    if problems or engine.is_internal_error(result):
+        return 2
+    return code
+
+
 def _cmd_run(args) -> int:
     loaded_list = load_scenarios(Path(args.path))
     out_dir = Path(args.output)
     code = 0
-    for i, loaded in enumerate(loaded_list):
-        idx = i if "[" in loaded.source_name else None
+    used: set = set()
+    for loaded in loaded_list:
+        idx = _array_index(loaded.source_name)
         result = engine.recommend_loaded(loaded, fill_defaults=args.fill_defaults, trace=not args.no_trace)
         problems = output.check(result)
         for p in problems:
             _err(f"{loaded.source_name}: output check: {p}")
-        if engine.is_internal_error(result):
-            code = 2
+        code = _run_exit_code(code, problems, result)
+        sid = result.get("scenario_id")
+        base = output_name(sid, loaded.source_name, idx)
+        name = _unique_name(base, sid, loaded.source_name, idx, used)
+        if name != base:
+            _err(f"{loaded.source_name}: output name {base} already used; writing {name}")
+        used.add(name.lower())
         try:
-            target = write_output(result, out_dir, output_name(result.get("scenario_id"), loaded.source_name, idx))
+            target = write_output(result, out_dir, name)
         except OSError as e:
             _err(f"{loaded.source_name}: cannot write output: {e.strerror or e}")
-            return 2
+            code = 2
+            continue
         if not args.quiet:
             _out(f"{_label(result, loaded)}  {result['status']}  {_stack_cols(result)}  {_cost(result)}  -> {target}")
     return code
