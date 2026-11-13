@@ -79,4 +79,6 @@ SOURCES: dict = {
     "swa_faq": ("Azure Static Web Apps FAQ (global static assets; managed Functions region chosen at creation)", "https://learn.microsoft.com/en-us/azure/static-web-apps/faq", _A),
     "okta_trust": ("Okta trust centre (Okta and Auth0; certifications not broken down per product)", "https://security.okta.com/", _A),
     "firebase_dpst": ("Firebase Data Processing and Security Terms", "https://firebase.google.com/terms/data-processing-terms", _A),
+    "eol_azure_ad_graph": ("Migrate from Azure AD Graph to Microsoft Graph (retirement timeline; fully retired 31 Aug 2025)", "https://learn.microsoft.com/en-us/graph/migrate-azure-ad-graph-overview", _A),
+    "eol_ams_retirement": ("Azure Media Services retirement guide (retired 30 Jun 2024)", "https://learn.microsoft.com/azure/media-services/latest/azure-media-services-retirement", _A),
 }
