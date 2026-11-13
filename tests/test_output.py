@@ -163,5 +163,58 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(r["estimated_monthly_cost_usd"]["assumptions"], ["No cost estimate: no stack was produced."])
 
 
+class PublicOutputTests(unittest.TestCase):
+    """T-OUT-01..03 on the engine's real results for the six public scenarios."""
+    SIDS = ("P1", "P2", "P3", "P4", "P5", "P6")
+
+    @classmethod
+    def setUpClass(cls):
+        from pathlib import Path
+        from stacksense import engine
+        root = Path(__file__).resolve().parent.parent / "scenarios" / "public"
+        cls.results = {sid: engine.recommend(json.loads((root / f"{sid}.json").read_text(encoding="utf-8")))
+                       for sid in cls.SIDS}
+
+    def test_every_public_output_passes_check(self):
+        for sid, r in self.results.items():
+            self.assertEqual(output.check(r), [], sid)
+
+    def test_key_order(self):
+        for sid, r in self.results.items():
+            self.assertEqual(list(r), list(output.KEY_ORDER), sid)
+
+    def test_scenario_and_versions(self):
+        from stacksense import kb
+        for sid, r in self.results.items():
+            self.assertEqual(r["scenario_id"], sid)
+            self.assertEqual(r["kb_version"], kb.kb_version())
+            self.assertIs(r["llm_used"], False)
+
+    def test_core_layers_and_supporting_order(self):
+        for sid, r in self.results.items():
+            self.assertIn(r["status"], ("ok", "ok_with_warnings"), sid)
+            for layer in output.CORE_LAYERS:
+                self.assertIn(layer, r["stack"], sid)
+            idx = [output.SUPPORTING_LAYERS.index(s["layer"]) for s in r["stack"]["supporting"]]
+            self.assertEqual(idx, sorted(idx), sid)
+
+    def test_costs_are_ints_and_round_trip(self):
+        for sid, r in self.results.items():
+            c = r["estimated_monthly_cost_usd"]
+            self.assertIsInstance(c["min"], int)
+            self.assertIsInstance(c["max"], int)
+            self.assertEqual(json.loads(output.dumps(r)), r)
+            self.assertTrue(output.dumps(r).endswith("\n"))
+
+    def test_trace_keys(self):
+        for sid, r in self.results.items():
+            t = r["decision_trace"]
+            self.assertEqual(sorted(t["constants"]), ["K", "KB_DATE", "kb_version"])
+            for layer in ("backend", "database", "hosting"):
+                self.assertLessEqual(len(t["layers"][layer]["top"]), 5)
+                self.assertTrue(all(c["contributions"] is not None for c in t["layers"][layer]["top"]))
+            self.assertLessEqual(len(t["combinations"]["top"]), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

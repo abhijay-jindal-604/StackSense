@@ -178,6 +178,8 @@ def record_violations(rec, layer, p, off=None):
         return out + _offering_violations(off, rec, p)
     if self_mode or not _personal(rec, layer, p):
         return out
+    if layer not in CORE + tuple(FRONTEND_LAYERS) and (kind == "bundled" or "bundled_with_host" in (rec.get("caps") or ())):
+        return out      # a feature of the host (built-in CDN, platform logs): the host is checked itself
     managed_offers = [o for o in kb.OFFERINGS if o["engine"] == rec["id"] and o["host"] != "self_hosted"]
     if managed_offers:
         found = [_offering_violations(o, rec, p) for o in managed_offers]

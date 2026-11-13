@@ -10,14 +10,35 @@ class EngineSkeletonTests(unittest.TestCase):
             self.assertEqual(output.check(r), [], repr(raw))
             self.assertEqual(r["status"], "invalid_input", repr(raw))
 
-    def test_valid_input_stub(self):
+    def test_valid_input_produces_stack(self):
         import json
         from pathlib import Path
         p = Path(__file__).resolve().parent.parent / "scenarios" / "public" / "P1.json"
         r = engine.recommend(json.loads(p.read_text(encoding="utf-8")))
         self.assertEqual(output.check(r), [])
+        self.assertIsNotNone(r["stack"])
+        self.assertIn(r["status"], ("ok", "ok_with_warnings"))
+        self.assertNotIn("ENGINE_NOT_IMPLEMENTED", [w["code"] for w in r["warnings"]])
+
+    def test_infeasible_has_critical_and_nearest_feasible(self):
+        import json
+        from pathlib import Path
+        p = Path(__file__).resolve().parent.parent / "scenarios" / "edge" / "H33_rbi_with_us_residency.json"
+        r = engine.recommend(json.loads(p.read_text(encoding="utf-8")))
+        self.assertEqual(r["status"], "infeasible")
         self.assertIsNone(r["stack"])
-        self.assertIn("ENGINE_NOT_IMPLEMENTED", [w["code"] for w in r["warnings"]])
+        self.assertEqual(output.check(r), [])
+        self.assertIn("RESIDENCY_COMPLIANCE_CONFLICT", [w["code"] for w in r["warnings"]])
+        self.assertIn("infrastructure.data_residency", [n["field"] for n in r["nearest_feasible"]])
+        self.assertIn("rbi_localisation", r["summary"])
+
+    def test_internal_error_is_contained(self):
+        from unittest import mock
+        with mock.patch.object(engine, "_pipeline", side_effect=RuntimeError("boom")):
+            r = engine.recommend({"scenario_id": "E1"})
+        self.assertEqual(r["status"], "infeasible")
+        self.assertTrue(engine.is_internal_error(r))
+        self.assertEqual(output.check(r), [])
 
     def test_load_error(self):
         from stacksense.io import LoadedScenario

@@ -80,6 +80,10 @@ Rules that need interpretation (stated once, applied everywhere)
 * **Explicit cloud (F3/F3b)** binds the infrastructure layers (D10: hosting, database, cache, queue,
   storage, cdn, search, ml, observability) and vendor-operated back ends. A record passes when its
   ``cloud_affinity`` contains the cloud, or it is portable (``any``) and self-hostable / not SaaS.
+* **Host-bundled supporting records** (kind ``bundled`` or cap ``bundled_with_host``: built-in CDN
+  edge, platform logs, host-native git deploys) inherit F4/F5 from the host: they pass when every
+  host in ``hosts`` (the chosen hosts that ``supporting.select`` passes, else every surviving host)
+  passes the same rule, and fail closed when there is no host.
 * **open_source_only (F6)** does not apply to hosting (infrastructure, per the schema text) or
   payments (no open-source gateway exists). Managed offerings of an open-source engine pass.
 
@@ -116,6 +120,7 @@ HYPERSCALERS = ("aws", "gcp", "azure")
 CLOUD_NAMES = {"aws": "AWS", "gcp": "Google Cloud", "azure": "Azure"}
 RESIDENCY_NAMES = {"india": "India", "eu": "EU", "us": "US", "other": "the unnamed country"}
 LATENCY_COLD_START_MS = 50
+CORE_RECORD_LAYERS = FRONTEND_LAYERS + ("backend", "database", "hosting")
 CLIENT_LAYER_PLATFORMS = {"frontend_web": ("web",), "frontend_desktop": ("desktop",),
                           "frontend_mobile": ("android", "ios")}
 
@@ -383,9 +388,41 @@ def _runs_inside_host(rec, p) -> bool:
     return not _is_offering(rec) and not rec.get("saas") and not self_hosted_mode(rec, p)
 
 
+def host_bundled(rec, layer) -> bool:
+    """A supporting feature of the host itself (built-in CDN edge, platform logs, git deploys): kind
+    ``bundled`` or cap ``bundled_with_host``. It has no region or attestation of its own; F4/F5 judge
+    it by the host(s) it is bundled with."""
+    if layer in CORE_RECORD_LAYERS:
+        return False
+    return rec.get("kind") == "bundled" or "bundled_with_host" in (rec.get("caps") or ())
+
+
+def _inherit_host(rec, p, layer, ctx, rule):
+    """F4/F5 for a host-bundled record: it passes when there is a host and every host passed in
+    ``hosts`` (the chosen hosts from supporting.select, else every surviving host) passes the same
+    rule as a hosting record; otherwise it fails with the host's reason (or closed with no host)."""
+    hosts = list(ctx["hosts"]()[0])
+    name = rec.get("name", rec["id"])
+    fields = (F_COMP,) if rule == "F5" else _res_fields(p)
+    if not hosts:
+        what = "compliance" if rule == "F5" else _residency_text(p)
+        return _rej(rec, layer, rule, fields, f"{name} is part of the host, and no host passes the hard filters, "
+                    f"so it cannot be checked against {what} (fail closed).", rec.get("sources", ()), True)
+    fn = _f4 if rule == "F4" else _f5
+    fails = [r for r in (fn(h, p, "hosting", ctx) for h in sorted(hosts, key=lambda h: h["id"])) if r is not None]
+    if not fails:
+        return None
+    return _rej(rec, layer, rule, tuple(sorted({f for r in fails for f in r.fields})),
+                f"{name} is part of the host, which fails this check: " + " ".join(r.reason_text for r in fails),
+                [k for r in fails for k in r.sources], any(r.unverified for r in fails),
+                host=",".join(r.tech_id for r in fails))
+
+
 def _f4(rec, p, layer, ctx):
     if not handles_personal_data(rec, p, layer, ctx.get("static_only")) or _runs_inside_host(rec, p):
         return None
+    if host_bundled(rec, layer) and not self_hosted_mode(rec, p):
+        return _inherit_host(rec, p, layer, ctx, "F4")
     return _f4_cells(rec, p, layer, self_hosted_mode(rec, p))
 
 
@@ -462,6 +499,8 @@ def _f5_cells(rec, p, layer, self_mode):
 def _f5(rec, p, layer, ctx):
     if not handles_personal_data(rec, p, layer, ctx.get("static_only")) or _runs_inside_host(rec, p):
         return None
+    if host_bundled(rec, layer) and not self_hosted_mode(rec, p):
+        return _inherit_host(rec, p, layer, ctx, "F5")
     return _f5_cells(rec, p, layer, self_hosted_mode(rec, p))
 
 

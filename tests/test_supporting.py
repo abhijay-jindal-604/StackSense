@@ -412,10 +412,7 @@ class PublicScenarioTests(unittest.TestCase):
         # KB gap: kb.regions['fcm'] India = UNKNOWN (FCM fails F4); APNs cannot target android.
         self.assertEqual(self.chosen("P2", "other.push"), "firebase_cloud_messaging")
 
-    @unittest.expectedFailure
     def test_p2_observability(self):
-        # KB/filter gap: platform_builtin_logs is unbound (no region cells) and Sentry has no India region;
-        # host-bundled services should inherit the host's region (filters change requested).
         self.assertIn("observability", self.res("P2")[2].layers())
 
     def test_p3(self):
