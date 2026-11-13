@@ -1,0 +1,88 @@
+{
+  "scenario_id": "H34",
+  "project": {
+    "name": "Extras Everywhere",
+    "type": "web_app",
+    "description": "Scenario that sets every StackSense extra and many unknown keys.",
+    "platforms": [
+      "web"
+    ],
+    "codename": "alpha"
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 500,
+    "users_12_months": 40000,
+    "peak_concurrent_users": 250,
+    "data_volume_gb_12_months": 20,
+    "geographic_spread": "multi_region",
+    "peak_rps": 800,
+    "notes": "unknown key in scale"
+  },
+  "team": {
+    "has_devops": false,
+    "size": 3,
+    "experience": "intermediate",
+    "languages": [
+      "javascript",
+      "typescript"
+    ],
+    "willing_to_learn": true,
+    "growth_12_months": 6,
+    "on_call_rota": true
+  },
+  "budget": {
+    "monthly_infra_usd": 300,
+    "currency": "USD"
+  },
+  "timeline": {
+    "mvp_weeks": 10,
+    "launch_date": "unspecified"
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": [],
+    "existing_licences": [
+      "aws_credits"
+    ],
+    "lock_in_tolerance": "high",
+    "open_source_only": false,
+    "preferred_region": "ap-south-1"
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "email_password",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": null,
+    "notifications": [
+      "email",
+      "push"
+    ],
+    "background_jobs": true,
+    "consistency": "strong",
+    "data_shape": "relational",
+    "cms": "none",
+    "sso_idp": "none"
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3,
+    "fun": 5
+  },
+  "owner_email_domain": "example.org"
+}

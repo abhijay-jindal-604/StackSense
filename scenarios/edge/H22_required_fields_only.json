@@ -1,0 +1,26 @@
+{
+  "scenario_id": "H22",
+  "project": {
+    "type": "web_app",
+    "platforms": [
+      "web"
+    ]
+  },
+  "scale": {
+    "users_at_launch": 100,
+    "users_12_months": 1000
+  },
+  "team": {
+    "size": 2,
+    "experience": "intermediate",
+    "languages": [
+      "python"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 100
+  },
+  "timeline": {
+    "mvp_weeks": 8
+  }
+}

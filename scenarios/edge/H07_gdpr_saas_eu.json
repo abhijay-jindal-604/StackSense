@@ -1,0 +1,64 @@
+{
+  "scenario_id": "H07",
+  "project": {
+    "name": "LedgerLeaf",
+    "type": "saas_b2b",
+    "description": "Invoicing and expense workflow SaaS for European small businesses.",
+    "platforms": [
+      "web"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 800,
+    "users_12_months": 20000,
+    "peak_concurrent_users": 1000,
+    "data_volume_gb_12_months": 300
+  },
+  "team": {
+    "has_devops": false,
+    "size": 4,
+    "experience": "intermediate",
+    "languages": [
+      "typescript",
+      "python"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 1200
+  },
+  "timeline": {
+    "mvp_weeks": 14
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "eu",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "email_password",
+    "multi_tenant": true,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": null
+  },
+  "compliance": [
+    "gdpr"
+  ],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

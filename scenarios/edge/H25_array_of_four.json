@@ -1,0 +1,131 @@
+[
+  {
+    "scenario_id": "P1",
+    "project": {
+      "name": "DevFolio",
+      "type": "content_site",
+      "description": "Personal portfolio with project pages and a weekly blog. Content written in Markdown by the owner.",
+      "platforms": [
+        "web"
+      ]
+    },
+    "scale": {
+      "traffic_pattern": "steady",
+      "workload": "read_heavy",
+      "users_at_launch": 200,
+      "users_12_months": 3000,
+      "peak_concurrent_users": 50,
+      "data_volume_gb_12_months": 1
+    },
+    "team": {
+      "has_devops": false,
+      "size": 1,
+      "experience": "beginner",
+      "languages": [
+        "javascript",
+        "html",
+        "css"
+      ]
+    },
+    "budget": {
+      "monthly_infra_usd": 0
+    },
+    "timeline": {
+      "mvp_weeks": 2
+    },
+    "infrastructure": {
+      "cloud_preference": "any",
+      "deployment_model": "managed_cloud",
+      "data_residency": "none",
+      "existing_systems": []
+    },
+    "requirements": {
+      "realtime": false,
+      "offline_support": false,
+      "full_text_search": false,
+      "file_media_storage": false,
+      "payments": false,
+      "auth": "none",
+      "multi_tenant": false,
+      "ml_features": "none",
+      "seo_critical": true,
+      "availability": "99",
+      "p95_latency_ms": null
+    },
+    "compliance": [],
+    "priorities": {
+      "cost": 5,
+      "time_to_market": 4,
+      "scalability": 1,
+      "performance": 3,
+      "maintainability": 3,
+      "security": 2
+    }
+  },
+  {},
+  "x",
+  {
+    "scenario_id": "P3",
+    "project": {
+      "name": "BoardRoom",
+      "type": "realtime_collab",
+      "description": "Multiplayer whiteboard: many users edit the same board at once with live cursors. Teams pay per seat.",
+      "platforms": [
+        "web"
+      ]
+    },
+    "scale": {
+      "traffic_pattern": "spiky",
+      "workload": "write_heavy",
+      "users_at_launch": 1000,
+      "users_12_months": 50000,
+      "peak_concurrent_users": 5000,
+      "data_volume_gb_12_months": 200
+    },
+    "team": {
+      "has_devops": true,
+      "size": 5,
+      "experience": "senior",
+      "languages": [
+        "typescript",
+        "go"
+      ]
+    },
+    "budget": {
+      "monthly_infra_usd": 1500
+    },
+    "timeline": {
+      "mvp_weeks": 12
+    },
+    "infrastructure": {
+      "cloud_preference": "any",
+      "deployment_model": "managed_cloud",
+      "data_residency": "none",
+      "existing_systems": []
+    },
+    "requirements": {
+      "realtime": true,
+      "offline_support": false,
+      "full_text_search": false,
+      "file_media_storage": true,
+      "payments": true,
+      "auth": "social",
+      "multi_tenant": true,
+      "ml_features": "none",
+      "seo_critical": false,
+      "availability": "99.9",
+      "p95_latency_ms": 100
+    },
+    "compliance": [
+      "gdpr"
+    ],
+    "priorities": {
+      "cost": 2,
+      "time_to_market": 3,
+      "scalability": 5,
+      "performance": 5,
+      "maintainability": 4,
+      "security": 3
+    }
+  }
+]

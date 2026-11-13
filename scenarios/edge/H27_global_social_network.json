@@ -1,0 +1,68 @@
+{
+  "scenario_id": "H27",
+  "project": {
+    "name": "Worldwide Moments",
+    "type": "social",
+    "description": "Global social network with feeds, messaging and media sharing.",
+    "platforms": [
+      "web",
+      "android",
+      "ios"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "spiky",
+    "workload": "read_heavy",
+    "users_at_launch": 500000,
+    "users_12_months": 20000000,
+    "peak_concurrent_users": 1000000,
+    "data_volume_gb_12_months": 500000,
+    "geographic_spread": "global"
+  },
+  "team": {
+    "has_devops": true,
+    "size": 40,
+    "experience": "senior",
+    "languages": [
+      "go",
+      "java",
+      "typescript",
+      "kotlin",
+      "swift"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 150000
+  },
+  "timeline": {
+    "mvp_weeks": 40
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": true,
+    "offline_support": false,
+    "full_text_search": true,
+    "file_media_storage": true,
+    "payments": false,
+    "auth": "social",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.99",
+    "p95_latency_ms": 200
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "scenario_id": "H17",
+  "project": {
+    "name": "Arena Rush",
+    "type": "gaming",
+    "description": "Real-time multiplayer arena game with matchmaking and leaderboards.",
+    "platforms": [
+      "android",
+      "ios"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "spiky",
+    "workload": "balanced",
+    "users_at_launch": 20000,
+    "users_12_months": 200000,
+    "peak_concurrent_users": 30000,
+    "data_volume_gb_12_months": 20,
+    "geographic_spread": "global"
+  },
+  "team": {
+    "has_devops": true,
+    "size": 6,
+    "experience": "intermediate",
+    "languages": [
+      "csharp",
+      "go"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 8000
+  },
+  "timeline": {
+    "mvp_weeks": 24
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": true,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "social",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": 60
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

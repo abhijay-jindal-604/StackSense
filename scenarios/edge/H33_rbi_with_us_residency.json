@@ -1,0 +1,64 @@
+{
+  "scenario_id": "H33",
+  "project": {
+    "name": "Rupee Bridge",
+    "type": "fintech",
+    "description": "UPI wallet for Indian users.",
+    "platforms": [
+      "web"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 500,
+    "users_12_months": 50000,
+    "peak_concurrent_users": 250,
+    "data_volume_gb_12_months": 20
+  },
+  "team": {
+    "has_devops": false,
+    "size": 5,
+    "experience": "intermediate",
+    "languages": [
+      "java",
+      "typescript"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 2000
+  },
+  "timeline": {
+    "mvp_weeks": 10
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "us",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": true,
+    "auth": "phone_otp",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": null
+  },
+  "compliance": [
+    "rbi_localisation"
+  ],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

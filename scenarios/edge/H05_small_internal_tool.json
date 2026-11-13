@@ -1,0 +1,62 @@
+{
+  "scenario_id": "H05",
+  "project": {
+    "name": "StockCheck Desk",
+    "type": "internal_tool",
+    "description": "Warehouse stock checklist used by 40 staff inside one company.",
+    "platforms": [
+      "web"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 40,
+    "users_12_months": 40,
+    "peak_concurrent_users": 15,
+    "data_volume_gb_12_months": 2
+  },
+  "team": {
+    "has_devops": true,
+    "size": 1,
+    "experience": "senior",
+    "languages": [
+      "python",
+      "typescript"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 2000
+  },
+  "timeline": {
+    "mvp_weeks": 10
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "enterprise_sso",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": null
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

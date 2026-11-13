@@ -1,0 +1,63 @@
+{
+  "scenario_id": "H15",
+  "project": {
+    "name": "PetPal Mobile",
+    "type": "web_app",
+    "description": "Pet owner companion app with reminders and vet bookings.",
+    "platforms": [
+      "ios",
+      "android"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 500,
+    "users_12_months": 15000,
+    "peak_concurrent_users": 250,
+    "data_volume_gb_12_months": 20
+  },
+  "team": {
+    "has_devops": false,
+    "size": 2,
+    "experience": "intermediate",
+    "languages": [
+      "python"
+    ],
+    "willing_to_learn": false
+  },
+  "budget": {
+    "monthly_infra_usd": 250
+  },
+  "timeline": {
+    "mvp_weeks": 10
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "email_password",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.9",
+    "p95_latency_ms": null
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

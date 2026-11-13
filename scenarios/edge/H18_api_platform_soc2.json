@@ -1,0 +1,64 @@
+{
+  "scenario_id": "H18",
+  "project": {
+    "name": "Relay Metrics API",
+    "type": "api_platform",
+    "description": "Public REST API product for developers, with API keys and usage plans.",
+    "platforms": [
+      "api_only"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 500,
+    "users_12_months": 10000,
+    "peak_concurrent_users": 800,
+    "data_volume_gb_12_months": 400
+  },
+  "team": {
+    "has_devops": true,
+    "size": 5,
+    "experience": "senior",
+    "languages": [
+      "go",
+      "typescript"
+    ]
+  },
+  "budget": {
+    "monthly_infra_usd": 2500
+  },
+  "timeline": {
+    "mvp_weeks": 10
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": false,
+    "payments": false,
+    "auth": "none",
+    "multi_tenant": true,
+    "ml_features": "none",
+    "seo_critical": false,
+    "availability": "99.95",
+    "p95_latency_ms": null
+  },
+  "compliance": [
+    "soc2"
+  ],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}

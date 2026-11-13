@@ -1,0 +1,59 @@
+{
+  "scenario_id": "H28",
+  "project": {
+    "name": "Blue Loom Store",
+    "type": "ecommerce",
+    "description": "Online shop for handmade textiles run by two non-technical owners.",
+    "platforms": [
+      "web"
+    ]
+  },
+  "scale": {
+    "traffic_pattern": "steady",
+    "workload": "balanced",
+    "users_at_launch": 100,
+    "users_12_months": 2000,
+    "peak_concurrent_users": 50,
+    "data_volume_gb_12_months": 10
+  },
+  "team": {
+    "has_devops": false,
+    "size": 1,
+    "experience": "beginner",
+    "languages": []
+  },
+  "budget": {
+    "monthly_infra_usd": 60
+  },
+  "timeline": {
+    "mvp_weeks": 3
+  },
+  "infrastructure": {
+    "cloud_preference": "any",
+    "deployment_model": "managed_cloud",
+    "data_residency": "none",
+    "existing_systems": []
+  },
+  "requirements": {
+    "realtime": false,
+    "offline_support": false,
+    "full_text_search": false,
+    "file_media_storage": true,
+    "payments": true,
+    "auth": "email_password",
+    "multi_tenant": false,
+    "ml_features": "none",
+    "seo_critical": true,
+    "availability": "99.9",
+    "p95_latency_ms": null
+  },
+  "compliance": [],
+  "priorities": {
+    "cost": 3,
+    "time_to_market": 3,
+    "scalability": 3,
+    "performance": 3,
+    "maintainability": 3,
+    "security": 3
+  }
+}
