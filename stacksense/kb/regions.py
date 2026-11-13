@@ -223,3 +223,26 @@ def region_ok(provider, residency):
 def source_keys(provider):
     entry = ENTRIES.get(ALIASES.get(provider, provider))
     return list(entry["sources"]) if entry else []
+
+
+# ---- Supporting-service additions (T3-KB, 2026-11-13).  New vendor rows only.  A vendor whose region list could not be
+# confirmed from an official page is UNKNOWN in all three groups (fail closed); sources are the pages read that day.
+ENTRIES["azure_strategic"] = _e(UNKNOWN, UNKNOWN, UNKNOWN, ["azure_service_categories"],
+                                "Strategic Azure services (Azure Machine Learning, Microsoft Foundry, Azure SignalR Service, Notification Hubs) have "
+                                "demand-driven availability per region and the products-by-region table could not be read: fails closed.")
+ENTRIES["gcp_identity_platform"] = _e(UNKNOWN, UNKNOWN, UNKNOWN, ["gcp_hipaa"],
+                                      "Identity Platform's BAA coverage is documented but where user records are stored is not: fails closed.")
+_SV_UNVERIFIED_REGIONS = {
+    "workos": "sv_workos_security", "ably": "sv_ably_docs", "pusher": "sv_pusher_docs", "payu": "sv_payu_docs",
+    "paddle": "sv_paddle_site", "adyen": "sv_adyen_pci", "paypal_braintree": "sv_braintree_docs",
+    "revenuecat": "sv_revenuecat_docs", "anthropic": "sv_anthropic_privacy", "algolia": "sv_algolia_pricing",
+    "elastic_cloud": "sv_elastic_cloud_docs", "backblaze": "sv_b2_docs", "grafana_cloud": "sv_grafana_cloud_docs",
+    "datadog": "sv_datadog_docs", "postmark": "sv_postmark_docs", "resend": "sv_resend_docs", "fcm": "firebase_privacy",
+    "apns": "apple_apns", "twilio": "sv_twilio_verify_docs", "sanity": "sv_sanity_docs", "powersync": "sv_powersync_pricing",
+    "mux": "sv_mux_docs",
+}
+for _k, _s in sorted(_SV_UNVERIFIED_REGIONS.items()):
+    ENTRIES[_k] = _e(UNKNOWN, UNKNOWN, UNKNOWN, [_s],
+                     "Data location for this vendor was not confirmed on an official page on 2026-11-13: fails closed under any residency.")
+for _k in ["azure_strategic", "gcp_identity_platform"] + sorted(_SV_UNVERIFIED_REGIONS):
+    ENTRIES[_k]["conf"] = "unknown"

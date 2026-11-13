@@ -282,3 +282,46 @@ def attestation_in_region(vendor, regime, residency):
     if (key, regime, residency) in COMBINED_UNKNOWN:
         return "unknown"
     return attestation(vendor, regime)
+
+
+# ---- Supporting-service additions (T3-KB, 2026-11-13).  New vendor rows only.
+_AWS_SVC_NOTE = "On the AWS HIPAA-eligible, PCI DSS, SOC and ISO 27001 service lists read on 2026-11-13."
+for _k, _n in [("aws_elasticache", "Amazon ElastiCache"), ("aws_sqs", "Amazon SQS"), ("aws_msk", "Amazon MSK"),
+               ("aws_opensearch", "Amazon OpenSearch Service"), ("aws_cloudfront", "Amazon CloudFront (not the Embedded PoPs)"),
+               ("aws_sagemaker", "Amazon SageMaker AI"), ("aws_iot_core", "AWS IoT Core"), ("aws_appsync", "AWS AppSync"),
+               ("aws_codebuild", "AWS CodeBuild and CodePipeline"), ("aws_cloudwatch", "Amazon CloudWatch, CloudWatch Logs and X-Ray"),
+               ("aws_api_gateway", "Amazon API Gateway"), ("aws_kms", "AWS KMS and Secrets Manager"), ("aws_waf", "AWS WAF"),
+               ("aws_ses", "Amazon SES")]:
+    ATTEST[_k] = _aws("yes", "yes", "yes", "yes", _n + ". " + _AWS_SVC_NOTE)
+_GCP_SVC_NOTE = "BAA covered product and in the services-in-scope table (16 Jul 2026), read on 2026-11-13."
+for _k, _n in [("gcp_pubsub", "Pub/Sub and Cloud Tasks"), ("gcp_cloud_cdn", "Cloud CDN"), ("gcp_cloud_build", "Cloud Build"),
+               ("gcp_ops", "Cloud Logging, Cloud Monitoring and Cloud Trace"),
+               ("gcp_vertex_ai", "Vertex AI (BAA list names Generative AI on Agent Platform and AI Platform Training and Prediction; "
+                                 "the vendor renamed the Vertex AI line)")]:
+    ATTEST[_k] = _gcp("yes", "yes", "yes", "yes", _n + ". " + _GCP_SVC_NOTE)
+for _k, _n in [("azure_service_bus", "Azure Service Bus"), ("azure_blob", "Azure Blob Storage"), ("azure_front_door", "Azure Front Door"),
+               ("azure_ai_search", "Azure AI Search"), ("azure_signalr", "Azure SignalR Service"),
+               ("azure_machine_learning", "Azure Machine Learning"), ("azure_ai_foundry", "Microsoft Foundry models"),
+               ("azure_iot_hub", "Azure IoT Hub"), ("azure_app_insights", "Azure Monitor Application Insights"),
+               ("azure_devops", "Azure DevOps (Azure Pipelines)"), ("azure_api_management", "Azure API Management"),
+               ("azure_key_vault", "Azure Key Vault")]:
+    ATTEST[_k] = _az(_n + ".")
+ATTEST["entra_external_id"] = _a(_U, _U, _U, _U, _U, ["sv_entra_ext_overview"],
+                                 "Attestation scope of Entra External ID (customer tenants) was not confirmed on an official page: fails closed.")
+_SV_UNVERIFIED_ATTEST = {
+    "ably": "sv_ably_docs", "pusher": "sv_pusher_docs", "paddle": "sv_paddle_site", "paypal_braintree": "sv_braintree_docs",
+    "revenuecat": "sv_revenuecat_docs", "anthropic": "sv_anthropic_privacy", "algolia": "sv_algolia_pricing",
+    "elastic_cloud": "sv_elastic_cloud_docs", "backblaze": "sv_b2_docs", "grafana_cloud": "sv_grafana_cloud_docs",
+    "datadog": "sv_datadog_docs", "postmark": "sv_postmark_docs", "resend": "sv_resend_docs", "fcm": "firebase_privacy",
+    "apns": "apple_apns", "twilio": "sv_twilio_verify_docs", "sanity": "sv_sanity_docs", "powersync": "sv_powersync_pricing",
+    "mux": "sv_mux_docs",
+}
+for _k, _s in sorted(_SV_UNVERIFIED_ATTEST.items()):
+    ATTEST[_k] = _a(_U, _U, _U, _U, _U, [_s], "Attestations for this vendor were not confirmed on an official page on 2026-11-13: fails closed.")
+ATTEST["workos"] = _a(_U, "plan:enterprise", _U, "yes", _U, ["sv_workos_security"],
+                      "WorkOS security page: SOC 2 Type 2 certified, GDPR compliant, HIPAA BAA available on enterprise plans.", rbi="na")
+ATTEST["workos"]["gdpr"] = "yes"
+ATTEST["adyen"] = _a(_U, _U, "yes", _U, _U, ["sv_adyen_pci"],
+                     "Adyen documents that it is a PCI DSS Level 1 Service Provider assessed by a QSA; other attestations not confirmed.", rbi=_U)
+ATTEST["gitlab_saas"] = _a(_U, _U, _U, "yes", "yes", ["sv_gitlab_security"],
+                           "GitLab trust page: SOC 2 Type 2 and ISO/IEC 27001:2022 for GitLab.com and GitLab Dedicated.")
