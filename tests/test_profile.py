@@ -324,8 +324,8 @@ class AssumptionsAndDeterminism(unittest.TestCase):
 
 
 class Stubs(unittest.TestCase):
-    def test_description_stub(self):
-        self.assertEqual(extract("double-entry ledger"), ())
+    def test_description_signals(self):
+        self.assertIn("ledger", [s.id for s in extract("double-entry ledger")])
         self.assertEqual(extract(None), ())
 
     def test_existing_stub(self):
