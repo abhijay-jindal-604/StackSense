@@ -4,10 +4,12 @@
 
 1. ``validate`` -> errors? ``invalid_input``.
 2. ``description.extract``, ``existing.analyse``, ``profile.derive``.
-3. (Phase 3 hook) ``conflicts.detect``: not built yet; :func:`_conflicts` is the single place it plugs in.
+3. ``conflicts.detect``: ``imply:``/valued ``relax:`` effects re-derive the profile once
+   (:func:`derive_with_conflicts`); ``relax:`` effects become ``relaxed_constraints`` and ``RELAXED:``
+   assumptions; an ``infeasible`` effect (hard-vs-hard conflict) makes the result infeasible.
 4. Per core layer: KB candidates -> ``filters.filter_layer`` -> ``scoring.rank``.
 5. ``combine.search`` (database offerings are resolved inside the search; read from the Combo).
-6. ``supporting.select``, ``architecture.decide``, ``cost.estimate``.
+6. ``supporting.select``, ``architecture.decide``, ``cost.estimate``, ``conflicts.post_checks``.
 7. Empty core layer, no compatible combination, or a hard-vs-hard conflict -> ``infeasible`` with a
    critical warning and ``nearest_feasible`` (each hard constraint relaxed in turn; names only).
 8. ``explain.*``, ``status.decide``, ``output.build``. The LLM is never consulted for the stack.
@@ -19,7 +21,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import architecture, combine, cost, description, existing, explain, filters, kb, output, profile
+from . import architecture, combine, conflicts, cost, description, existing, explain, filters, kb, output, profile
 from . import scoring, status, supporting
 from .io import LoadedScenario
 from .kb.keywords import RULES as _KEYWORD_RULES
@@ -130,8 +132,22 @@ def _search(p):
     return ranked, rejections, combine.search(ranked, p), None
 
 
-def _feasible(p) -> bool:
-    if p.infeasible:
+def derive_with_conflicts(v):
+    """Profile plus pre-selection conflicts; imply/valued-relax effects re-derive the profile exactly once."""
+    p = _derive(v)
+    pre = conflicts.detect(p, v)
+    changes = conflicts.profile_changes(pre)
+    if changes:
+        p = _derive(conflicts.apply_changes(v, changes))
+    return p, pre
+
+
+def _hard_conflict(p, pre) -> bool:
+    return bool(p.infeasible) or conflicts.infeasible(pre)
+
+
+def _feasible(p, pre=()) -> bool:
+    if _hard_conflict(p, pre):
         return False
     _, _, result, layer = _search(p)
     return layer is None and result is not None and result.feasible
@@ -180,12 +196,13 @@ def existing_outputs(p) -> tuple[list[dict], list[str]]:
     return warns, notes
 
 
-def _conflicts(p, stage: str, **kw) -> tuple[list[dict], list[str]]:
-    """Phase 3 hook for ``conflicts.detect`` / ``conflicts.post_checks`` (plan 6.3).
+def _conflicts(found, existing_warnings) -> tuple[list[dict], list[str]]:
+    """Merge conflicts (``conflicts.detect`` / ``conflicts.post_checks``, plan 6.3) into the result.
 
-    Returns (warnings, relaxed_constraints). conflicts.py does not exist yet, so nothing is added.
+    Returns (new warnings, relaxed constraints). A code already emitted by another module (profile, cost,
+    supporting, validate) is not repeated, but its effect still applies.
     """
-    return [], []
+    return conflicts.merge(existing_warnings, found), conflicts.relaxed(found)
 
 
 # ------------------------------------------------------------------ nearest feasible
@@ -225,8 +242,8 @@ def nearest_feasible(raw, v, p, *, fill_defaults: bool) -> list[dict]:
         v2 = validate(r2, fill_defaults=fill_defaults)
         if v2.errors:
             continue
-        p2 = _derive(v2)
-        if not _feasible(p2):
+        p2, pre2 = derive_with_conflicts(v2)
+        if not _feasible(p2, pre2):
             continue
         if path == "compliance":
             msg = f"Dropping '{old}' from compliance makes a stack feasible."
@@ -284,23 +301,23 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     if v.errors:
         return output.build(status="invalid_input", scenario_id=sid, validation_errors=v.errors,
                             assumptions=v.assumptions, warnings=v.notices, kb_version=kbv)
-    # 2. description, existing systems, profile
-    p = _derive(v)
+    # 2-3. description, existing systems, profile; pre-selection conflicts (profile re-derived once)
+    p, pre = derive_with_conflicts(v)
     warnings: list[dict] = list(v.notices) + list(p.warnings)
     warnings += description_warnings(v, p.signals)
     ex_warn, integration = existing_outputs(p)
     warnings += ex_warn
-    assumptions: list[str] = list(v.assumptions) + list(p.assumptions)
+    assumptions: list[str] = list(v.assumptions) + list(p.assumptions) + conflicts.assumptions(pre)
     relaxed: list[str] = []
-    # 3. conflicts (Phase 3 hook)
-    cw, cr = _conflicts(p, "pre")
+    cw, cr = _conflicts(pre, warnings)
     warnings += cw
     relaxed += cr
+    hard = _hard_conflict(p, pre)
     # 4-5. core candidates and combination search
     ranked, rejections, result, empty = _search(p)
-    feasible = not p.infeasible and empty is None and result is not None and result.feasible
+    feasible = not hard and empty is None and result is not None and result.feasible
     if not feasible:
-        if not p.infeasible:     # p.infeasible already carries its critical conflict warning
+        if not hard:     # a hard-vs-hard conflict already carries its critical warning
             warnings.append(_infeasible_warning(p, ranked, rejections, result, empty))
         near = nearest_feasible(raw, v, p, fill_defaults=fill_defaults)
         st = status.decide([], warnings, relaxed, False)
@@ -327,9 +344,10 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     assumptions += list(sup.assumptions)
     est = cost.estimate(p, best.stack(), extra_lines=sup.cost_lines(p))
     warnings += list(est.warnings)
-    cw, cr = _conflicts(p, "post", combo=best, supporting=sup, cost=est)
+    post = conflicts.post_checks(p, best, sup, est, ranked, existing_warnings=warnings)
+    cw, cr = _conflicts(post, warnings)
     warnings += cw
-    relaxed += cr
+    relaxed += [r for r in cr if r not in relaxed]
     warnings = _dedupe(warnings)
     # 8. status, architecture, explanations
     st = status.decide([], warnings, relaxed, True)

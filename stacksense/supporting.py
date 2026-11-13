@@ -152,6 +152,7 @@ class CoreStack:
     hosts: tuple[dict, ...] = ()
     frontends: tuple[dict, ...] = ()
     provider: str | None = None          # explicit provider family override (else from hosts)
+    frontend_hosts: tuple[dict, ...] = ()  # hosts that serve only the frontend (subset of ``hosts``)
 
     @classmethod
     def of(cls, core: Any) -> "CoreStack":
@@ -181,10 +182,11 @@ class CoreStack:
             return tuple(r for r in (rec(i) for i in items) if r is not None)
 
         hosts = many(get("hosting", None) or get("hosts", None))
-        hosts += tuple(h for h in many(get("frontend_hosting", None)) if h["id"] not in {x["id"] for x in hosts})
+        fe_only = tuple(h for h in many(get("frontend_hosting", None)) if h["id"] not in {x["id"] for x in hosts})
+        hosts += fe_only
         return cls(backend=rec(get("backend", None)), database=rec(get("database", None)), hosts=hosts,
                    frontends=many(get("frontend", None) or get("frontends", None)),
-                   provider=get("provider", None))
+                   provider=get("provider", None), frontend_hosts=fe_only)
 
 
 @dataclass(frozen=True)
@@ -444,8 +446,13 @@ class _Cx:
         if self.backend_kind in FUNCTION_BACKEND_KINDS:
             if self.backend and self.backend.get("runtime") in GENERAL_RUNTIMES:
                 rts.add(self.backend["runtime"])
+            # A host that serves only the frontend runs the frontend's code, not arbitrary back-end
+            # libraries: it contributes only the runtimes the chosen frontends themselves use.
+            fe_only = {h["id"] for h in (core.frontend_hosts or ())}
+            fe_rts = {f.get("runtime") for f in self.frontends} & set(GENERAL_RUNTIMES)
             for h in self.hosts:
-                rts |= _host_runtimes(h) & set(GENERAL_RUNTIMES)
+                allowed = fe_rts if h["id"] in fe_only else set(GENERAL_RUNTIMES)
+                rts |= _host_runtimes(h) & allowed
         self.stack_runtimes = frozenset(rts)
         self.chosen: dict[str, dict] = {}
         self.n_layers = 1                    # triggered supporting layers sharing the budget (set by select)

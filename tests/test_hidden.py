@@ -27,21 +27,14 @@ CORE = ("frontend", "backend", "database", "hosting")
 
 # id -> one-line reason from the real failing assertion (coordinator re-syncs after concurrent work).
 KNOWN_GAPS: dict[str, str] = {
-    "H01": "missing ZERO_BUDGET_SCALE critical warning (status ok_with_warnings)",
-    "H02": "missing AVAILABILITY_VS_TEAM critical warning",
-    "H03": "missing TIMELINE_PLATFORMS critical warning",
-    "H06": "missing HIPAA_BAA warning",
-    "H07": "missing GDPR_NOTES warning",
     "H09": "missing EOL_EXISTING_SYSTEM warnings (existing.py, Phase 4)",
     "H10": "missing EOL_EXISTING_SYSTEM warnings (existing.py, Phase 4)",
     "H12": "missing ONPREM_NO_SAAS warning (status ok)",
-    "H13": "status ok_with_warnings, wanted infeasible (missing CLOUD_VS_DEPLOYMENT critical; conflicts.py)",
     "H14": "backend chose NestJS (Node.js 26 LTS), wanted Laravel",
     "H15": "neither SKILL_MISMATCH nor SKILL_GAP_NO_LEARNING present",
     "H16": "database chose 'self-managed on Amazon EC2 / Lightsail', wanted TimescaleDB/InfluxDB/ClickHouse",
     "H17": "missing LATENCY_AGGRESSIVE warning",
     "H19": "database chose 'None (no database)', wanted ClickHouse/BigQuery/Snowflake",
-    "H20": "missing LLM_DATA_RESIDENCY warning",
     "H28": "backend chose Payload CMS, wanted Shopify",
     "H29": "H29_01: missing LATENCY_AGGRESSIVE warning",
     "H30": "H30_P1: supporting observability changed vs P1 (locality)",
