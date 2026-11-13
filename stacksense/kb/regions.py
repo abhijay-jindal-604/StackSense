@@ -32,7 +32,9 @@ RESIDENCY_VALUES = ("none", "india", "eu", "us", "other")
 
 def _e(india, eu, us, sources, note="", other=UNKNOWN, none=None, conf=None):  # conf kept for call-site compatibility
     res = {"none": ANY if none is None else none, "india": india, "eu": eu, "us": us, "other": other}
-    return {"residency": res, "sources": list(sources), "conf": "V", "accessed": ACCESSED, "note": note}
+    # conf reflects india/eu/us only ("other" is UNKNOWN for every managed vendor by design)
+    conf = "unknown" if any(res[x] == UNKNOWN for x in ("india", "eu", "us")) else "V"
+    return {"residency": res, "sources": list(sources), "conf": conf, "accessed": ACCESSED, "note": note}
 
 
 _AWS_EU = ["eu-central-1", "eu-west-1", "eu-west-3", "eu-north-1", "eu-south-1", "eu-south-2"]
@@ -172,11 +174,6 @@ INFERENCE_PROFILES = {
                 "note": "global.* routes to any commercial region (residency none only); verify destinations with GetInferenceProfile."},
 }
 
-# conf reflects india/eu/us only ("other" is UNKNOWN for every managed vendor by design)
-for _k, _v in ENTRIES.items():
-    _r = _v["residency"]
-    _v["conf"] = "unknown" if any(_r[x] == UNKNOWN for x in ("india", "eu", "us")) else "V"
-
 # Provider aliases: product keys resolve to their vendor entry when the product has none of its own.
 ALIASES = {"firebase": "firebase_auth", "gcs": "gcp", "s3": "aws", "rds": "aws", "ecs": "aws", "cloudwatch": "aws",
            "mongodb": "mongodb_atlas", "atlas": "mongodb_atlas", "fly_machines": "fly", "r2": "cloudflare_r2", "d1": "cloudflare_d1",
@@ -244,5 +241,3 @@ _SV_UNVERIFIED_REGIONS = {
 for _k, _s in sorted(_SV_UNVERIFIED_REGIONS.items()):
     ENTRIES[_k] = _e(UNKNOWN, UNKNOWN, UNKNOWN, [_s],
                      "Data location for this vendor was not confirmed on an official page on 2026-11-13: fails closed under any residency.")
-for _k in ["azure_strategic", "gcp_identity_platform"] + sorted(_SV_UNVERIFIED_REGIONS):
-    ENTRIES[_k]["conf"] = "unknown"

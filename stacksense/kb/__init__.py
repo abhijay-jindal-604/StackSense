@@ -13,7 +13,7 @@ import importlib
 import json
 
 from . import model
-from .model import CORE_LAYERS, LAYERS, SUPPORTING_LAYERS
+from .model import ATTEST_KEYS, CORE_LAYERS, LAYERS, REGION_KEYS, SUPPORTING_LAYERS
 from .sources import SOURCES
 
 _RECORD_MODULES = ("frontend", "backend", "database", "hosting",
@@ -25,6 +25,16 @@ MIN_COUNTS = {
     "backend": 25, "database": 20, "hosting": 30,
     **{layer: 4 for layer in SUPPORTING_LAYERS},
 }
+
+
+# Host families an offering may name: the hosts actually used in kb.offerings. The cloud hyperscalers must match the
+# ``underlying_cloud`` of hosting records (cross-checked in integrity_problems); the rest are managed-database vendors.
+HOST_FAMILIES = ("atlas", "aura", "aws", "azure", "clickhouse_cloud", "cloudflare", "cockroach_cloud", "digitalocean",
+                 "fly", "gcp", "neon", "self_hosted", "snowflake", "supabase")
+
+
+def _attest_ok(v) -> bool:
+    return isinstance(v, str) and (v in ("yes", "no", "self") or (v.startswith("plan:") and len(v) > 5))
 
 
 def _load(name: str, attr: str) -> list:
@@ -72,9 +82,18 @@ def integrity_problems() -> list[str]:
         p.extend(_source_problems(o["id"], o.get("sources", [])))
         p.extend(_source_problems(o["id"], [f["source_key"] for f in o.get("facts", [])]))
         p.extend(model.cost_problems(o.get("cost", {})))
+        if o["host"] not in HOST_FAMILIES:
+            p.append(f"offering {o['id']}: host {o['host']!r} is not in HOST_FAMILIES")
+        p.extend(f"offering {o['id']}: regions group {g!r} unknown" for g in sorted(o.get("regions", {})) if g not in REGION_KEYS)
+        p.extend(f"offering {o['id']}: attest {k}={v!r} invalid" for k, v in sorted(o.get("attest", {}).items())
+                 if k not in ATTEST_KEYS or not _attest_ok(v))
         if o["engine"] not in _BY_ID:
             p.append(f"offering {o['id']}: engine {o['engine']!r} is not a KB record")
     p.extend(f"duplicate offering id {i!r}" for i, n in sorted(oseen.items()) if n > 1)
+    for r in RECORDS:
+        uc = r.get("underlying_cloud")
+        if r["layer"] == "hosting" and uc and uc not in HOST_FAMILIES:
+            p.append(f"{r['id']}: underlying_cloud {uc!r} is not in HOST_FAMILIES")
     return p
 
 

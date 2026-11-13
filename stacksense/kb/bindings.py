@@ -17,7 +17,7 @@ import re
 from . import compliance, regions
 from .model import ATTEST_KEYS, REGION_KEYS, fact
 
-# compliance regime name -> model attest key
+# model attest key (kb.model.ATTEST_KEYS) -> compliance regime name used by kb.compliance.attestation()
 ATTEST_MAP = {"hipaa_baa": "hipaa", "pci_dss": "pci_dss", "soc2": "soc2", "iso27001": "iso27001", "gdpr_dpa": "gdpr"}
 
 _S = "self_hosted"
@@ -92,9 +92,23 @@ BINDINGS = {
     "postgres__supabase": ("supabase", "supabase"),
 }
 
-# Facts that state a region or attestation claim; replaced by generated facts on bound records.
-_CLAIM = re.compile(r"^(Region|Attestation)\b|\b(HIPAA|BAA|SOC ?2|SOC reports?|ISO ?27001|PCI|GDPR|DPA|regions?|residency|"
-                    r"attestations?|Mumbai|bom1?|India)\b")
+# Hand-written facts that restate a region or attestation cell are replaced by generated ones: those whose text starts
+# with "Region:"/"Attestation:", or that open with a regime name and cite one of the binding's region/attestation
+# source keys. Other facts
+# (caveats such as "functions default to iad1, pin to bom1") are kept even when they mention regions or India.
+_CLAIM = re.compile(r"^(Region|Attestation)\b")
+# A fact that merely opens with a regime name and cites a region/attestation source also restates a cell
+# ("HIPAA is available on higher plans ..."); a caveat opening differently is kept.
+_RESTATES = re.compile(r"^(HIPAA|BAA|SOC ?2?\b|ISO ?27001|PCI|GDPR|DPA)")
+
+
+def _claim_sources(rk, ak) -> set:
+    out = set()
+    if rk is not None:
+        out.update(regions.ENTRIES[regions.ALIASES.get(rk, rk)]["sources"])
+    if ak is not None:
+        out.update(compliance.ATTEST[compliance.ALIASES.get(ak, ak)]["sources"])
+    return out
 
 
 def regions_dict(key) -> dict:
@@ -146,7 +160,9 @@ def _attest_fact(key):
 
 def _apply(rec: dict) -> dict:
     rk, ak = BINDINGS[rec["id"]]
-    facts = [f for f in rec["facts"] if not _CLAIM.search(f["text"])]
+    claim_src = _claim_sources(rk, ak)
+    facts = [f for f in rec["facts"] if not (_CLAIM.search(f["text"])
+                                             or (f["source_key"] in claim_src and _RESTATES.search(f["text"])))]
     srcs = set(rec["sources"])
     new = []
     if rk is not None:

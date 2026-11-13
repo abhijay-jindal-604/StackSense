@@ -294,7 +294,9 @@ def _merge() -> dict:
     for name in _SIBLINGS:
         try:
             mod = importlib.import_module(f"{__package__}.{name}")
-        except ImportError:
+        except ImportError as exc:
+            if exc.name != f"{__package__}.{name}":
+                raise  # the sibling exists but one of its own imports is broken
             continue
         for key, val in sorted(getattr(mod, "SOURCES", {}).items()):
             val = tuple(val)

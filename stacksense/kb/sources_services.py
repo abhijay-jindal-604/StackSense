@@ -5,6 +5,10 @@ Same shape as kb/sources.py: key -> (title, https url, ISO accessed date). Merge
 
 _D = "2026-11-13"
 _RAW = {
+    # item-7 fixes (2026-11-13): sources for rows that had none
+    "sv_entra_data_residency": ("Microsoft Entra ID and data residency (tenant geo-locations: Australia, Asia/Pacific, EMEA, Japan, North America, Worldwide)", "https://learn.microsoft.com/en-us/entra/fundamentals/data-residency"),
+    "sv_payu_pg_page": ("PayU India payment gateway page (vendor marketing claims of PCI DSS and RBI compliance; no AOC or localisation evidence published)", "https://payu.in/payment-gateway/"),
+    "sv_msg91_gdpr": ("MSG91 GDPR page (policy statement only; names no data location or certification)", "https://msg91.com/gdpr"),
     # pricing / docs pages for cost bands and facts (read or consulted 2026-11-13)
     "sv_elasticache_docs": ("Amazon ElastiCache documentation", "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.html"),
     "sv_elasticache_pricing": ("Amazon ElastiCache pricing", "https://aws.amazon.com/elasticache/pricing/"),

@@ -214,7 +214,7 @@ ATTEST = {
     "upstash": _a("yes", "plan:enterprise", "no", "yes", _U, ["rf_upstash_compliance"],
                   "SOC 2 report needs Prod Pack or Enterprise; no PCI claim (does not store card data)."),
     "mongodb_atlas": _a(_U, "yes", "yes", _U, "yes", ["atlas_compliance", "rf_atlas_hipaa"],
-                        "BAA is in the Cloud Terms for self-service accounts; invoice/Order Form accounts must request it. Beta/preview excluded."),
+                        "BAA is in the Cloud Terms for self-service accounts; invoice/Order Form accounts must request it. Beta/preview excluded. The HIPAA page states product-level coverage and no tier restriction; whether free/shared (M0, Flex) clusters are in scope was not stated (checked 2026-11-13), so use a dedicated M10+ cluster for PHI."),
     "firebase_auth": _a(_U, _U, _U, "yes", "yes", ["firebase_privacy"], "US-only processing. BAA not stated for Firebase Auth; GCP Identity Platform is covered with restrictions."),
     "gcp_identity_platform": _gcp("yes", "yes", "yes", "yes", "Do not store PHI in optional/custom attributes."),
     "firestore": _gcp("yes", "yes", "yes", "yes", "Firestore: BAA covered product; ISO, SOC and PCI in scope."),
@@ -225,9 +225,15 @@ ATTEST = {
     "stripe": _a("yes", _U, "yes", "yes", _U, ["rf_stripe_security", "stripe_india"], "Invite-only for new Indian businesses.", rbi=_U),
     "razorpay": _a(_U, "na", "yes", _U, _U, ["rf_razorpay_pg"], "RBI PA authorisation and data localisation are the vendor's own docs claim.", rbi="yes"),
     "cashfree": _a(_U, "na", "yes", _U, _U, ["rf_cashfree_security"], "RBI localisation unverified.", rbi=_U),
-    "payu": _a(_U, "na", _U, _U, _U, [], "Not checked today.", rbi=_U),
-    "entra_id": _a(_U, "yes", _U, _U, _U, ["rf_azure_hipaa"], "Entra ID is on the Microsoft BAA in-scope list (Office 365 commercial table)."),
-    "msg91": _a(_U, "na", "na", _U, _U, [], "Not checked today.", rbi=_U),
+    "payu": _a(_U, "na", _U, _U, _U, ["sv_payu_pg_page"],
+               "PayU's own marketing pages claim PCI DSS and RBI data-localisation compliance, but no attestation of compliance or "
+               "hosting evidence is published and its security page could not be read on 2026-11-13: left unknown (fail closed).", rbi=_U),
+    "entra_id": _a(_U, "yes", _U, _U, _U, ["rf_azure_hipaa", "sv_entra_data_residency"],
+                   "Entra ID is on the Microsoft BAA in-scope list (Office 365 commercial table). Other attestations were not read from "
+                   "an Entra-specific page on 2026-11-13: unknown (fail closed)."),
+    "msg91": _a(_U, "na", "na", _U, _U, ["sv_msg91_gdpr"],
+                "MSG91's GDPR page is a policy statement: it names no data location, certification or DPA terms, and its security page "
+                "could not be read on 2026-11-13: left unknown (fail closed).", rbi=_U),
     "github_actions": _a(_U, "na", "na", _U, _U, [], "Source code, not user data."),
     "shopify": _a(_U, _U, _U, _U, _U, ["hst_shopify_data"], "Shopify's PCI/SOC/data-processing pages were not confirmed on 2026-11-13 (404 or silent): unknown."),
     "appwrite": _a(_U, _U, _U, "yes", _U, ["appwrite_compliance"], "SOC 2 Type II; no ISO 27001, PCI, BAA or DPA statement on the compliance page."),
