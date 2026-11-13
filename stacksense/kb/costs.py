@@ -102,11 +102,13 @@ ALWAYS_EXCLUDED = ("payment gateway fees", "staff cost", "audit fees", "domain r
 
 
 def round_sig(x: float, figures: int = SIGNIFICANT_FIGURES) -> int:
-    """Round to ``figures`` significant figures and return an int (deterministic, half away from zero)."""
+    """Round to ``figures`` significant figures and return an int (deterministic, half away from zero).
+
+    Values whose ``figures``-th significant digit lies below the units place (for example 2.5 at two
+    figures) are rounded to the nearest integer, also half away from zero: 2.5 -> 3, -2.5 -> -3."""
     if x == 0:
         return 0
     from decimal import Decimal, ROUND_HALF_UP
     d = Decimal(repr(float(x)))
-    exp = d.adjusted() - figures + 1
-    q = Decimal(1).scaleb(exp)
-    return int(d.quantize(q, rounding=ROUND_HALF_UP)) if exp >= 0 else int(round(x))
+    exp = max(0, d.adjusted() - figures + 1)
+    return int(d.quantize(Decimal(1).scaleb(exp), rounding=ROUND_HALF_UP))
