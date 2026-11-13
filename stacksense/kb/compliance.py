@@ -223,8 +223,12 @@ ATTEST = {
     "clerk": _a(_U, "plan:enterprise", "no", "yes", _U, ["rf_clerk_security"], "No cardholder data; US hosting only."),
     "sentry": _a(_U, "plan:business", _U, "yes", "yes", ["rf_sentry_privacy"], "SOC 2 / ISO per Sentry trust centre (search summary); BAA Business tier or higher."),
     "stripe": _a("yes", _U, "yes", "yes", _U, ["rf_stripe_security", "stripe_india"], "Invite-only for new Indian businesses.", rbi=_U),
-    "razorpay": _a(_U, "na", "yes", _U, _U, ["rf_razorpay_pg"], "RBI PA authorisation and data localisation are the vendor's own docs claim.", rbi="yes"),
-    "cashfree": _a(_U, "na", "yes", _U, _U, ["rf_cashfree_security"], "RBI localisation unverified.", rbi=_U),
+    "razorpay": _a(_U, "na", "yes", "yes", "yes", ["rf_razorpay_pg", "sv_razorpay_security"],
+                   "RBI PA authorisation and data localisation are the vendor's own docs claim. Security page (2026-11-13) lists PCI DSS Level 1, "
+                   "ISO 27001:2022 and SOC 2 Type 2 (copies on request; vendor-listed).", rbi="yes"),
+    "cashfree": _a(_U, "na", "yes", "yes", "yes", ["rf_cashfree_security"],
+                   "Security page (2026-11-13) lists PCI DSS v4.0.1 Level 1, ISO 27001:2022 and SOC 2 Type 2. RBI localisation not stated there "
+                   "(merchant terms word hosting-in-India passively, without naming who is bound): unknown.", rbi=_U),
     "payu": _a(_U, "na", _U, _U, _U, ["sv_payu_pg_page"],
                "PayU's own marketing pages claim PCI DSS and RBI data-localisation compliance, but no attestation of compliance or "
                "hosting evidence is published and its security page could not be read on 2026-11-13: left unknown (fail closed).", rbi=_U),

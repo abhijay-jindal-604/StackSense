@@ -22,6 +22,7 @@ SOURCES: dict = {
     "appwrite_docs": ("Appwrite documentation", "https://appwrite.io/docs", _A),
     "appwrite_regions": ("Appwrite Cloud regions (Bangalore listed as coming soon)", "https://appwrite.io/docs/products/network/regions", _A),
     "appwrite_compliance": ("Appwrite compliance (SOC 2 Type II)", "https://appwrite.io/docs/advanced/platform/compliance", _A),
+    "appwrite_selfhost_db": ("Appwrite self-hosting databases (PostgreSQL default for new installs, MariaDB default before 1.9.0, MongoDB supported)", "https://appwrite.io/docs/advanced/self-hosting/configuration/databases", _A),
     "appwrite_pricing": ("Appwrite pricing", "https://appwrite.io/pricing", _A),
     "supabase_dpa": ("Supabase Data Processing Addendum (GDPR)", "https://supabase.com/legal/dpa", _A),
     "shopify_pricing": ("Shopify pricing (INR list prices)", "https://www.shopify.com/pricing", _A),

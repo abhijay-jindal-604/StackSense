@@ -252,7 +252,9 @@ class HardConstraintTests(unittest.TestCase):
                                         "google_cloud_iot_core"))
 
     def test_gap_never_picks_rejected(self):
+        # Perturb P4 with a regime no India payment gateway attests (hipaa) so payments has a gap.
         raw = load_public("P4")
+        raw["compliance"] = sorted(set(raw["compliance"]) | {"hipaa"})
         p, res = run(raw, PUBLIC_CORES["P4"])
         gap = res.gap("payments")
         self.assertIsNotNone(gap)
@@ -443,11 +445,7 @@ class PublicScenarioTests(unittest.TestCase):
             if s.layer in filters.INFRA_LAYERS:
                 self.assertFalse(set(s.tech["cloud_affinity"]) & {"gcp", "azure"}, s.id)
 
-    @unittest.expectedFailure
     def test_p4_payments_razorpay(self):
-        # KB gap: kb.compliance has no confirmed iso27001 attestation for Razorpay (fails F5 closed under
-        # compliance=iso27001) and Cashfree/PayU have no confirmed India region (F4). Reported as a
-        # SUPPORTING_GAP critical warning instead.
         self.assertEqual(self.chosen("P4", "payments"), "razorpay")
 
     @unittest.expectedFailure

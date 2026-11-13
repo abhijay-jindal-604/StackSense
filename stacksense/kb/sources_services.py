@@ -8,6 +8,11 @@ _RAW = {
     # item-7 fixes (2026-11-13): sources for rows that had none
     "sv_entra_data_residency": ("Microsoft Entra ID and data residency (tenant geo-locations: Australia, Asia/Pacific, EMEA, Japan, North America, Worldwide)", "https://learn.microsoft.com/en-us/entra/fundamentals/data-residency"),
     "sv_payu_pg_page": ("PayU India payment gateway page (vendor marketing claims of PCI DSS and RBI compliance; no AOC or localisation evidence published)", "https://payu.in/payment-gateway/"),
+    "sv_razorpay_security": ("Razorpay security documentation (PCI DSS Level 1, ISO 27001:2022, SOC 2 Type 2; no data-location statement)", "https://razorpay.com/docs/security.md"),
+    "sv_msg91_privacy": ("MSG91 privacy policy (says hosted in the US or Germany, yet lists AWS India regions as a processor option: contradictory, no residency commitment)", "https://msg91.com/privacy-policy"),
+    "sv_cf_hyperdrive_docs": ("Cloudflare Hyperdrive overview (query acceleration, connection pooling, caching for Postgres and MySQL)", "https://developers.cloudflare.com/hyperdrive/"),
+    "sv_cf_hyperdrive_pricing": ("Cloudflare Hyperdrive pricing (included in Workers Free and Paid; pooling and caching not billed separately)", "https://developers.cloudflare.com/hyperdrive/platform/pricing/"),
+    "sv_cf_hyperdrive_limits": ("Cloudflare Hyperdrive limits (origin connections, statement duration, cache size)", "https://developers.cloudflare.com/hyperdrive/platform/limits/"),
     "sv_msg91_gdpr": ("MSG91 GDPR page (policy statement only; names no data location or certification)", "https://msg91.com/gdpr"),
     # pricing / docs pages for cost bands and facts (read or consulted 2026-11-13)
     "sv_elasticache_docs": ("Amazon ElastiCache documentation", "https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.html"),

@@ -162,8 +162,15 @@ ENTRIES = {
                  "alternative with this reason). Data-location pages not checked."),
     "self_hosted": _e(ANY, ANY, ANY, [], "Self-hosted/on-prem components run wherever the team deploys them.", other=ANY, conf="V"),
     "github_actions": _e(UNKNOWN, UNKNOWN, UNKNOWN, [], "Handles source code, not user data: policy allows it with an info note (filters, not a vendor fact)."),
-    "msg91": _e(UNKNOWN, UNKNOWN, UNKNOWN, [], "Not checked today."),
-    "entra_id": _e(UNKNOWN, UNKNOWN, UNKNOWN, [], "Tenant data location not checked today."),
+    "msg91": _e(UNKNOWN, UNKNOWN, UNKNOWN, ["sv_msg91_privacy"],
+                "Checked 2026-11-13: the privacy policy says the Service is hosted in the United States or Germany but also lists AWS India "
+                "regions as a processor option, and no page commits to Indian storage: left unknown (fail closed)."),
+    # Microsoft Entra ID: tenant location maps only to a geo (Australia, Asia/Pacific, EMEA, Japan, North America, Worldwide); there is no
+    # India country option (Go-Local is Australia and Japan only), so India residency is not available (verified none). EU/US stay unknown
+    # because EMEA and North America are geos, not the EU/US jurisdictions.
+    "entra_id": _e([], UNKNOWN, UNKNOWN, ["sv_entra_data_residency"],
+                   "Checked 2026-11-13: tenant data sits in the Asia/Pacific geo for Indian tenants; the page lists no India location and only "
+                   "Australia and Japan for the Go-Local add-on. India residency cannot be met. EU/US not mapped (geos, not jurisdictions)."),
 }
 
 # Amazon Bedrock geographic inference-profile prefixes per residency (product field, NOT region ids).
@@ -234,10 +241,16 @@ _SV_UNVERIFIED_REGIONS = {
     "paddle": "sv_paddle_site", "adyen": "sv_adyen_pci", "paypal_braintree": "sv_braintree_docs",
     "revenuecat": "sv_revenuecat_docs", "anthropic": "sv_anthropic_privacy", "algolia": "sv_algolia_pricing",
     "elastic_cloud": "sv_elastic_cloud_docs", "backblaze": "sv_b2_docs", "grafana_cloud": "sv_grafana_cloud_docs",
-    "datadog": "sv_datadog_docs", "postmark": "sv_postmark_docs", "resend": "sv_resend_docs", "fcm": "firebase_privacy",
+    "datadog": "sv_datadog_docs", "postmark": "sv_postmark_docs", "resend": "sv_resend_docs",
     "apns": "apple_apns", "twilio": "sv_twilio_verify_docs", "sanity": "sv_sanity_docs", "powersync": "sv_powersync_pricing",
     "mux": "sv_mux_docs",
 }
 for _k, _s in sorted(_SV_UNVERIFIED_REGIONS.items()):
     ENTRIES[_k] = _e(UNKNOWN, UNKNOWN, UNKNOWN, [_s],
                      "Data location for this vendor was not confirmed on an official page on 2026-11-13: fails closed under any residency.")
+
+# Firebase Cloud Messaging: the Firebase privacy page lists it under "Global services" with no location choice, so there is no India
+# residency commitment (verified none). EU/US are not offered as a choice either; left unknown.
+ENTRIES["fcm"] = _e([], UNKNOWN, UNKNOWN, ["firebase_privacy"],
+                    "Checked 2026-11-13: FCM is listed among Firebase 'Global services' (processed in multiple locations); no data-location "
+                    "selection and no India residency commitment. Fails closed under india residency.")

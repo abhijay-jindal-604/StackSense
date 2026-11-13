@@ -413,11 +413,13 @@ RECORDS = [
                      "appwrite_compliance", "V"),
                 fact("Free organisations are free and freeze read-only at their limits; Pro bills overage. The USD 25 Pro base and size bands are indicative (price page did not render the plan table)",
                      "appwrite_pricing", "K"),
+                fact("Bundled database: self-hosted Appwrite supports PostgreSQL (default for new installs), MariaDB (default before 1.9.0) and MongoDB, chosen at install and fixed for the life of the instance; the older MariaDB-only description is outdated. The page does not say which engine Appwrite Cloud runs",
+                     "appwrite_selfhost_db", "V"),
                 fact("Region choice at project creation is assumed from the console workflow, not stated on the regions page (K)",
                      "appwrite_regions", "K"),
                 fact("Ecosystem 2 and popularity 2: far fewer integrations and survey mentions than Supabase or Firebase",
                      "so_survey_2025", "K")],
-         sources=["appwrite_docs", "appwrite_regions", "appwrite_compliance", "appwrite_pricing", "so_survey_2025"]),
+         sources=["appwrite_docs", "appwrite_regions", "appwrite_compliance", "appwrite_pricing", "appwrite_selfhost_db", "so_survey_2025"]),
 
     # ------------------------------------------------------------------ serverless functions
     tech("cloudflare_workers_hono", "Cloudflare Workers (Hono)", "backend", "serverless_fn",
