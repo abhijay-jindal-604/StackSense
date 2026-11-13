@@ -239,11 +239,11 @@ RECORDS = [
                    "Multi-document transactions exist but relational integrity is app-enforced",
                    "MongoDB 6.0 and earlier are end of life; 8.0 is named"],
         facts=_self_facts("mongodb_docs") + [
-            fact("Region: MongoDB Atlas AWS regions verified today include AP_SOUTH_1 (Mumbai), AP_SOUTH_2 (Hyderabad), EU_CENTRAL_1 and US_EAST_1; Azure and GCP Atlas regions were not checked.", "rf_atlas_aws_regions", "V"),
+            fact("Region: MongoDB Atlas AWS regions verified today include AP_SOUTH_1 (Mumbai), AP_SOUTH_2 (Hyderabad), EU_CENTRAL_1 and US_EAST_1; Azure and GCP Atlas regions were not checked.", "atlas_regions", "V"),
             fact("Version: MongoDB 8.0 is supported to 31 Oct 2029, 7.0 to 31 Aug 2027; 6.0 reached end of life on 31 Jul 2025.", "eol_mongodb", "V"),
             fact("Score rationale: dev_velocity 5 because schema-less documents remove migrations for early-stage products; maintainability 3 because unconstrained schemas drift.", "mongodb_docs", "K"),
         ],
-        sources=["mongodb_docs", "eol_mongodb", "dbs_mongodb_lifecycle", "atlas_compliance", "atlas_pricing", "rf_atlas_aws_regions"]),
+        sources=["mongodb_docs", "eol_mongodb", "dbs_mongodb_lifecycle", "atlas_compliance", "atlas_pricing", "atlas_regions"]),
 
     _db("dynamodb", "Amazon DynamoDB", "kv",
         _a(4, 3, 5, 5, 3, 4, 4, 2, 4), 0, "xs", "xl",
@@ -262,10 +262,10 @@ RECORDS = [
                    "Proprietary API with no drop-in replacement (lock_in 3), AWS only"],
         facts=[
             fact("Region: DynamoDB has service endpoints in ap-south-1 (Mumbai), ap-south-2 (Hyderabad), eu-central-1, eu-west-1 and us-east-1 among others.", "dbs_ddb_endpoints", "V"),
-            fact("Attestation: DynamoDB is HIPAA-eligible (AWS reference), in scope for PCI DSS and for SOC reports (service lists), under the AWS DPA for GDPR.", "rf_aws_hipaa", "V"),
+            fact("Attestation: DynamoDB is HIPAA-eligible (AWS reference), in scope for PCI DSS and for SOC reports (service lists), under the AWS DPA for GDPR.", "aws_hipaa", "V"),
             fact("Score rationale: learning_curve 2 because single-table design and capacity modelling are non-obvious; performance 5 for predictable low-latency key lookups.", "dynamodb_docs", "K"),
         ],
-        sources=["dynamodb_docs", "dbs_ddb_endpoints", "rf_aws_hipaa", "rf_aws_pci", "dbs_aws_soc_scope", "rf_aws_gdpr"]),
+        sources=["dynamodb_docs", "dbs_ddb_endpoints", "aws_hipaa", "rf_aws_pci", "dbs_aws_soc_scope", "rf_aws_gdpr"]),
 
     _db("firestore", "Cloud Firestore", "document",
         _a(4, 5, 4, 4, 3, 4, 4, 4, 4), 0, "xs", "l",
@@ -285,10 +285,10 @@ RECORDS = [
                    "Firebase Realtime Database is not offered: it has regional limits and fewer controls under residency constraints"],
         facts=[
             fact("Region: Firestore locations include asia-south1 (Mumbai), asia-south2 (Delhi), eur3 and several single EU regions, nam5 and us-central1; the location is fixed at creation.", "rf_firestore_locations", "V"),
-            fact("Attestation: Firestore is on the Google Cloud HIPAA covered-products list; SOC 2 and ISO 27001 are recorded for Firebase services; PCI DSS and a GDPR DPA were not confirmed for Firestore specifically, so they are no (fail closed).", "rf_gcp_hipaa", "V"),
+            fact("Attestation: Firestore is on the Google Cloud HIPAA covered-products list; SOC 2 and ISO 27001 are recorded for Firebase services; PCI DSS and a GDPR DPA were not confirmed for Firestore specifically, so they are no (fail closed).", "gcp_hipaa", "V"),
             fact("Score rationale: dev_velocity 5 because SDKs give sync, offline and auth integration with no backend code.", "firestore_docs", "K"),
         ],
-        sources=["firestore_docs", "rf_firestore_locations", "rf_gcp_hipaa", "rf_firebase_privacy", "firebase_pricing", "dbs_firestore_editions"]),
+        sources=["firestore_docs", "rf_firestore_locations", "gcp_hipaa", "firebase_privacy", "firebase_pricing", "dbs_firestore_editions"]),
 
     _db("cosmosdb", "Azure Cosmos DB", "document",
         _a(2, 4, 5, 5, 3, 4, 3, 3, 3), 0, "xs", "xl",
@@ -390,10 +390,10 @@ RECORDS = [
                    "Google Cloud only"],
         facts=[
             fact("Region: BigQuery regional locations include asia-south1 (Mumbai), asia-south2 (Delhi) and europe-west3, plus the US and EU multi-regions.", "dbs_bigquery_locations", "V"),
-            fact("Attestation: BigQuery is on the Google Cloud HIPAA covered-products list and ISO 27001 applies at platform level; PCI DSS, SOC 2 and a GDPR DPA were not confirmed for BigQuery on an official page, so they are no (fail closed).", "rf_gcp_hipaa", "V"),
+            fact("Attestation: BigQuery is on the Google Cloud HIPAA covered-products list and ISO 27001 applies at platform level; PCI DSS, SOC 2 and a GDPR DPA were not confirmed for BigQuery on an official page, so they are no (fail closed).", "gcp_hipaa", "V"),
             fact("Score rationale: ops_burden 0 and scalability 5 because storage and compute are fully managed and scale separately; scale_floor m because below that the free tier of a transactional database is cheaper.", "bigquery_docs", "K"),
         ],
-        sources=["bigquery_docs", "dbs_bigquery_locations", "rf_gcp_hipaa", "rf_gcp_iso"]),
+        sources=["bigquery_docs", "dbs_bigquery_locations", "gcp_hipaa", "rf_gcp_iso"]),
 
     _db("snowflake", "Snowflake", "olap",
         _a(2, 4, 5, 4, 4, 4, 4, 3, 4), 0, "m", "xl",
@@ -509,3 +509,8 @@ RECORDS = [
         regions={"india": [], "eu": [], "us": []}, attest={k: "no" for k in ("hipaa_baa", "pci_dss", "soc2", "iso27001", "gdpr_dpa")},
         sources=["eol_fauna"]),
 ]
+
+# Region and attestation cells of bound records come from kb.regions / kb.compliance (kb.bindings).
+from .bindings import bind as _bind  # noqa: E402
+
+RECORDS = _bind(RECORDS)

@@ -47,7 +47,10 @@ class HostingKbT1F(unittest.TestCase):
         recs = _by_id()
         self.assertEqual(recs["vercel"]["regions"]["india"], ["bom1"])
         self.assertEqual(recs["do_app_platform"]["regions"]["india"], ["BLR1"])
-        self.assertIn("bom", recs["fly_io"]["regions"]["india"])
+        self.assertEqual(recs["fly_io"]["regions"]["india"], [])  # no bom on the official regions list
+        self.assertEqual(recs["azure_app_service"]["regions"]["india"], ["centralindia"])
+        self.assertEqual(recs["amazon_ec2_lightsail"]["attest"]["hipaa_baa"], "no")
+        self.assertEqual(recs["vercel"]["attest"]["hipaa_baa"], "plan:pro_addon")
 
     def test_airgapped_do_not_need_internet(self):
         recs = _by_id()

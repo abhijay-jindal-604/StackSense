@@ -59,6 +59,22 @@ Facts checked (product | fact | result | URL):
 | Razorpay | PCI DSS L1, RBI PA authorisation, data localisation, UPI (vendor's own docs) | V (self-claim) | https://razorpay.com/docs/payments/payment-gateway/ |
 | Cashfree | PCI DSS L1 (own docs); RBI localisation unverified | V / UNKNOWN | https://www.cashfree.com/docs/security.md |
 | PayU, MSG91, Entra data location, Typesense/Meilisearch/Algolia cloud, GitHub Actions | not checked | UNKNOWN | - |
+
+Reconciliation pass (2026-11-13, per-service rows, used by kb.bindings):
+| AWS | HIPAA list: Lightsail and App Runner absent; Amplify Console, EC2, EKS, ECS, Fargate (ECS/EKS), Lambda, API Gateway, Aurora, RDS, DynamoDB, Outposts, Cognito present | V | https://aws.amazon.com/compliance/hipaa-eligible-services-reference/ |
+| AWS | PCI / SOC / ISO lists: Lightsail absent; Aurora has no row; Amplify, EC2, EKS, ECS, Lambda, RDS, DynamoDB, Outposts, App Runner, Cognito, S3 present | V | .../services-in-scope/PCI/ , .../services-in-scope/SOC/ , https://aws.amazon.com/compliance/iso-certified/ |
+| GCP | BAA covered: Cloud Run, Cloud Run functions, GKE, Compute Engine, Cloud SQL, Firestore, BigQuery, Cloud Storage, Identity Platform, Memorystore, GDC connected; Firebase App Hosting absent | V | https://docs.cloud.google.com/docs/security/compliance/hipaa |
+| GCP | ISO 27001/17/18, SOC 1/2/3, PCI DSS in scope for the same products (table of 16 Jul 2026); Firebase App Hosting absent | V | https://cloud.google.com/security/compliance/services-in-scope/index-20260716 |
+| GCP | Cloud Data Processing Addendum: GDPR + SCCs for Google Cloud Platform services | V | https://cloud.google.com/terms/data-processing-addendum |
+| Azure | PCI DSS v4.0 Service Provider L1, ISO 27001 certificate covers Azure; per-service list only in the STP Appendix A (not readable) -> HIPAA/PCI unknown per service | V / UNKNOWN | https://learn.microsoft.com/en-us/azure/compliance/offerings/offering-pci-dss |
+| Azure Database for PostgreSQL | HIPAA, PCI DSS L1, SOC 2 Type 2, ISO 27001, EU Model Clauses (product page) | V | https://learn.microsoft.com/en-us/azure/postgresql/security/security-compliance |
+| Vercel | BAA: Pro add-on, Enterprise on request; PCI SAQ-D AOC (service provider) | V | https://vercel.com/docs/security/compliance |
+| Supabase | DPA (GDPR, SCCs) part of the Terms for every customer | V | https://supabase.com/legal/dpa |
+| DigitalOcean | DPA (GDPR, SCCs), updated 14 Oct 2026 | V | https://www.digitalocean.com/legal/data-processing-agreement |
+| Cloudflare | Customer DPA v6.4 (GDPR, SCCs) for enterprise and self-serve agreements | V | https://www.cloudflare.com/cloudflare-customer-dpa/ |
+| Netlify | SOC 2 Type 2, ISO 27001; PCI only SAQ-A; BAA/DPA not stated | V / UNKNOWN | https://www.netlify.com/security/ |
+| Auth0 | Okta trust centre badges not broken down per product | UNKNOWN | https://security.okta.com/ |
+| Fly.io, Shopify | security/compliance pages 404 or silent | UNKNOWN | - |
 """
 
 from .regions import UNKNOWN as _R_UNKNOWN  # noqa: F401  (re-exported marker for symmetry)
@@ -108,56 +124,127 @@ def _a(gdpr, hipaa, pci_dss, soc2, iso27001, src, note="", rbi="na", dpdp="na"):
 _U = "unknown"
 
 # Source keys per fact are in "sources" (vendor-level); FACT_SOURCES refines individual cells.
+_AWS_SRC = ["aws_hipaa", "rf_aws_pci", "dbs_aws_soc_scope", "aws_iso_scope", "rf_aws_gdpr"]
+_GCP_SRC = ["gcp_hipaa", "gcp_services_in_scope", "gcp_cdpa"]
+_AZ_SRC = ["rf_azure_hipaa", "azure_pci_offering", "azure_iso_offering", "rf_azure_offerings", "azure_audit_scope"]
+_AZ_SVC = ("HIPAA BAA and PCI DSS cover only in-scope services, and the per-service list (Azure Compliance Offerings, Appendix A) "
+           "is a Service Trust Portal document that could not be read on 2026-11-13: hipaa and pci_dss are unknown (fail closed). "
+           "SOC 2 and ISO 27001 are organisation-level attestations held by Azure; GDPR via the Microsoft DPA.")
+
+
+def _aws(hipaa, pci, soc2, iso, note):
+    return _a("yes", hipaa, pci, soc2, iso, _AWS_SRC, note)
+
+
+def _gcp(hipaa, pci, soc2, iso, note, gdpr="yes"):
+    return _a(gdpr, hipaa, pci, soc2, iso, _GCP_SRC, note)
+
+
+def _az(note, hipaa=_U, pci=_U):
+    return _a("yes", hipaa, pci, "yes", "yes", _AZ_SRC, note + " " + _AZ_SVC if hipaa == _U else note)
+
+
+# Rule (2026-11-13 reconciliation): HIPAA and PCI DSS are per service wherever the vendor publishes a per-service
+# list (AWS HIPAA-eligible / services-in-scope, Google BAA covered products / services in scope). SOC 2 and ISO 27001
+# are organisation-level (REGIMES), but where the vendor's own per-service scope list omits a service it is "no"
+# for that service (Lightsail, Firebase App Hosting). Vendor rows ("aws", "gcp", "azure") answer only the
+# organisation-level question; records and offerings bind to a service row through kb.bindings.
 ATTEST = {
-    "aws": _a("yes", "yes", "yes", "yes", "yes", ["rf_aws_hipaa", "rf_aws_pci", "rf_aws_programs", "rf_aws_gdpr"],
-              "HIPAA/PCI are per-service lists; RDS HIPAA only for listed engines; Fargate only ECS/EKS engines; sign the BAA first."),
-    "azure": _a("yes", "yes", "yes", "yes", "yes", ["rf_azure_hipaa", "rf_azure_offerings"],
-                "BAA is part of the Online Services DPA for in-scope services; GDPR via DPA (same document)."),
-    "gcp": _a(_U, "yes", "yes", _U, "yes", ["rf_gcp_hipaa", "rf_gcp_iso", "rf_gcp_filestore_compliance"],
-              "BAA covers listed products only. PCI shown from the Filestore page (product-level); SOC 2 not confirmed today."),
-    "bedrock": _a(_U, "yes", "yes", _U, _U, ["rf_aws_hipaa", "rf_aws_pci"], "PCI scope excludes Bedrock Marketplace."),
-    "cognito": _a(_U, "yes", "yes", _U, _U, ["rf_aws_hipaa", "rf_aws_pci"], "SOC/ISO service scope not checked."),
-    "supabase": _a(_U, "plan:hipaa_addon", _U, "yes", _U, ["rf_supabase_soc2", "rf_supabase_hipaa_projects"],
-                   "HIPAA = signed BAA + HIPAA add-on (plan not named). Mumbai + hipaa: region-specific eligibility not documented -> treat as UNKNOWN."),
+    "aws": _a("yes", _U, _U, "yes", "yes", ["aws_hipaa", "rf_aws_pci", "rf_aws_programs", "rf_aws_gdpr"],
+              "Vendor level only: HIPAA and PCI are per-service lists, use a service row (aws_*). Sign the BAA first."),
+    "aws_lambda": _aws("yes", "yes", "yes", "yes", "Lambda and API Gateway are on all four lists."),
+    "aws_ecs_fargate": _aws("yes", "yes", "yes", "yes", "ECS on all lists; Fargate HIPAA-eligible for the ECS/EKS engines; PCI lists ECS with the Fargate launch type."),
+    "aws_eks": _aws("yes", "yes", "yes", "yes", "EKS on all lists (Fargate and EC2 launch types for PCI)."),
+    "aws_ec2": _aws("yes", "yes", "yes", "yes", "EC2 on all lists."),
+    "aws_lightsail": _aws("no", "no", "no", "no", "Amazon Lightsail is absent from the HIPAA-eligible, PCI, SOC and ISO service lists."),
+    "aws_ec2_lightsail": _aws("no", "no", "no", "no", "Record covers EC2 and Lightsail: the weaker (Lightsail, on no list) is recorded; regulated workloads should use EC2, ECS or EKS."),
+    "aws_amplify": _aws("yes", "yes", "yes", "yes", "HIPAA list names 'AWS Amplify Console' (the former name of Amplify Hosting); PCI, SOC and ISO lists name AWS Amplify."),
+    "aws_app_runner": _aws("no", "yes", "yes", "yes", "App Runner is not HIPAA-eligible; it is on the PCI, SOC and ISO lists (and closed to new customers)."),
+    "aws_outposts": _aws("yes", "yes", "yes", "yes", "AWS Outposts is on all four lists."),
+    "aws_rds": _aws("yes", "yes", "yes", "yes", "RDS HIPAA-eligible for the PostgreSQL, MySQL, MariaDB, SQL Server, Oracle and Db2 engines; RDS on PCI, SOC and ISO lists."),
+    "aurora_postgres": _aws("yes", _U, _U, _U, "Amazon Aurora is HIPAA-eligible; the PCI, SOC and ISO lists show no row named Aurora (only RDS), so those are unknown."),
+    "aws_s3": _aws("yes", "yes", "yes", "yes", "Amazon S3 is on all four lists."),
+    "aws_dynamodb": _aws("yes", "yes", "yes", "yes", "DynamoDB on all four lists."),
+    "azure": _a("yes", _U, _U, "yes", "yes", _AZ_SRC, "Vendor level only. " + _AZ_SVC),
+    "azure_postgres": _a("yes", "yes", "yes", "yes", "yes", ["dbs_azure_pg_compliance", "rf_azure_hipaa"],
+                         "Product page lists HIPAA/HITECH, PCI DSS Level 1, SOC 2 Type 2, ISO 27001 and EU Model Clauses for flexible server."),
+    "azure_sql": _az("Azure SQL Database."),
+    "azure_cosmosdb": _az("Azure Cosmos DB (its compliance page defers to Appendix A)."),
+    "azure_mysql": _az("Azure Database for MySQL flexible server (no product compliance page found: 404)."),
+    "azure_app_service": _az("Azure App Service."),
+    "azure_functions": _az("Azure Functions."),
+    "azure_container_apps": _az("Azure Container Apps."),
+    "azure_aks": _az("Azure Kubernetes Service."),
+    "azure_vms": _az("Azure Virtual Machines."),
+    "azure_static_web_apps": _az("Azure Static Web Apps."),
+    "azure_managed_redis": _az("Azure Managed Redis."),
+    "azure_local": _a("self", "self", "self", "self", "self", ["hst_azure_local"],
+                      "Runs on the customer's own hardware and premises: the facility controls are the team's."),
+    "gcp": _gcp(_U, _U, "yes", "yes", "Vendor level only: BAA and PCI are per covered product; use a service row (gcp_*)."),
+    "gcp_cloud_run": _gcp("yes", "yes", "yes", "yes", "Cloud Run: BAA covered product; ISO, SOC and PCI in scope."),
+    "gcp_cloud_run_functions": _gcp("yes", "yes", "yes", "yes", "Cloud Run functions (listed as Cloud Functions in the scope table)."),
+    "gcp_gke": _gcp("yes", "yes", "yes", "yes", "Google Kubernetes Engine."),
+    "gcp_gce": _gcp("yes", "yes", "yes", "yes", "Compute Engine."),
+    "gcp_cloud_sql": _gcp("yes", "yes", "yes", "yes", "Cloud SQL."),
+    "gcp_bigquery": _gcp("yes", "yes", "yes", "yes", "BigQuery."),
+    "gcp_gcs": _gcp("yes", "yes", "yes", "yes", "Cloud Storage."),
+    "gcp_memorystore": _gcp("yes", "yes", "yes", "yes", "Memorystore."),
+    "firebase_app_hosting": _gcp("no", "no", "no", "no", "Firebase App Hosting is absent from the BAA covered-products list and from the services-in-scope table.", gdpr=_U),
+    "google_distributed_cloud": _a("self", "yes", "self", "self", "self", ["gcp_hipaa", "hst_gdc"],
+                                   "Runs on customer premises (controls are the team's); 'Google Distributed Cloud connected' is a BAA covered product."),
+    "bedrock": _a("yes", "yes", "yes", _U, _U, ["aws_hipaa", "rf_aws_pci"], "PCI scope excludes Bedrock Marketplace."),
+    "cognito": _aws("yes", "yes", "yes", "yes", "Amazon Cognito is on the HIPAA, PCI, SOC and ISO lists."),
+    "supabase": _a("yes", "plan:hipaa_addon", _U, "yes", _U, ["supabase_soc2", "supabase_hipaa_projects", "supabase_dpa"],
+                   "HIPAA = signed BAA + HIPAA add-on (plan not named). Mumbai + hipaa: region-specific eligibility not documented -> UNKNOWN. "
+                   "The DPA (GDPR, SCCs) forms part of the Terms for every customer."),
     "vercel": _a("yes", "plan:pro_addon", "yes", "yes", "yes", ["rf_vercel_compliance"],
-                 "BAA: Pro via HIPAA BAA add-on; Enterprise on request. Compute/CDN only."),
-    "digitalocean": _a(_U, _U, _U, "yes", _U, ["rf_do_certs"],
-                       "ISO 27001 only for colocated facilities; PCI is SAQ-A for DO's own admin environment; HIPAA/GDPR not stated."),
+                 "BAA: Pro teams buy the HIPAA BAA add-on; Enterprise on request. PCI: SAQ-D AOC as service provider. Compute/CDN only."),
+    "digitalocean": _a("yes", _U, _U, "yes", _U, ["rf_do_certs", "do_dpa"],
+                       "ISO 27001 only for colocated facilities; PCI is SAQ-A for DO's own admin environment; HIPAA not stated. DPA (GDPR, SCCs) is an addendum to the Terms."),
     "render": _a("yes", "plan:scale", _U, "yes", "yes", ["rf_render_compliance", "rf_render_hipaa"],
                  "HIPAA-enabled workspace needs Scale or Enterprise and is not available in Singapore; DPA for all workspaces."),
     "railway": _a("yes", "plan:baa_addon", _U, "yes", _U, ["rf_railway_compliance"], "BAA is a paid add-on with a monthly spend threshold."),
-    "fly": _a(_U, _U, _U, _U, _U, [], "Compliance page returned 404 today."),
+    "fly": _a(_U, _U, _U, _U, _U, ["fly_mpg"], "Compliance and security pages returned 404 on 2026-11-13."),
     "neon": _a(_U, "plan:scale", _U, "yes", "yes", ["rf_neon_security", "rf_neon_hipaa"], "HIPAA self-serve on Scale with BAA."),
-    "cloudflare": _a(_U, _U, "yes", "yes", "yes", ["rf_cf_certs"], "BAA terms not confirmed from a Cloudflare page; DLS is an Enterprise add-on."),
+    "netlify": _a(_U, _U, _U, "yes", "yes", ["netlify_security"],
+                  "SOC 2 Type 2 (report for Enterprise) and ISO 27001 certificate; PCI only as SAQ-A (merchant scope); BAA and DPA not stated on the page."),
+    "hetzner": _a(_U, _U, _U, _U, _U, ["hetzner_docs"], "Attestations not checked on an official page."),
+    "cloudflare": _a("yes", _U, "yes", "yes", "yes", ["rf_cf_certs", "cf_dpa"],
+                     "BAA terms not confirmed from a Cloudflare page; DLS is an Enterprise add-on. Customer DPA v6.4 covers enterprise and self-serve agreements."),
     "upstash": _a("yes", "plan:enterprise", "no", "yes", _U, ["rf_upstash_compliance"],
                   "SOC 2 report needs Prod Pack or Enterprise; no PCI claim (does not store card data)."),
-    "mongodb_atlas": _a(_U, "yes", "yes", _U, "yes", ["rf_atlas_trust", "rf_atlas_hipaa"],
+    "mongodb_atlas": _a(_U, "yes", "yes", _U, "yes", ["atlas_compliance", "rf_atlas_hipaa"],
                         "BAA is in the Cloud Terms for self-service accounts; invoice/Order Form accounts must request it. Beta/preview excluded."),
-    "firebase_auth": _a(_U, _U, _U, "yes", "yes", ["rf_firebase_privacy"], "US-only processing. BAA not stated for Firebase Auth; GCP Identity Platform is covered with restrictions."),
-    "gcp_identity_platform": _a(_U, "yes", _U, _U, "yes", ["rf_gcp_hipaa", "rf_gcp_iso"], "Do not store PHI in optional/custom attributes."),
-    "firestore": _a(_U, "yes", _U, "yes", "yes", ["rf_gcp_hipaa", "rf_firebase_privacy"], "Covered by the GCP BAA."),
-    "auth0": _a(_U, _U, _U, _U, _U, ["rf_auth0_cloud"], "BAA plan details were only on secondary sources: unknown. PCI only as private-cloud add-on."),
+    "firebase_auth": _a(_U, _U, _U, "yes", "yes", ["firebase_privacy"], "US-only processing. BAA not stated for Firebase Auth; GCP Identity Platform is covered with restrictions."),
+    "gcp_identity_platform": _gcp("yes", "yes", "yes", "yes", "Do not store PHI in optional/custom attributes."),
+    "firestore": _gcp("yes", "yes", "yes", "yes", "Firestore: BAA covered product; ISO, SOC and PCI in scope."),
+    "auth0": _a(_U, _U, _U, _U, _U, ["rf_auth0_cloud", "okta_trust"],
+                "Okta's trust centre lists SOC 2, ISO 27001, PCI DSS, HIPAA and GDPR badges for Okta and Auth0 together without a per-product breakdown or plan: unknown."),
     "clerk": _a(_U, "plan:enterprise", "no", "yes", _U, ["rf_clerk_security"], "No cardholder data; US hosting only."),
     "sentry": _a(_U, "plan:business", _U, "yes", "yes", ["rf_sentry_privacy"], "SOC 2 / ISO per Sentry trust centre (search summary); BAA Business tier or higher."),
-    "stripe": _a("yes", _U, "yes", "yes", _U, ["rf_stripe_security", "rf_stripe_india"], "Invite-only for new Indian businesses.", rbi=_U),
+    "stripe": _a("yes", _U, "yes", "yes", _U, ["rf_stripe_security", "stripe_india"], "Invite-only for new Indian businesses.", rbi=_U),
     "razorpay": _a(_U, "na", "yes", _U, _U, ["rf_razorpay_pg"], "RBI PA authorisation and data localisation are the vendor's own docs claim.", rbi="yes"),
     "cashfree": _a(_U, "na", "yes", _U, _U, ["rf_cashfree_security"], "RBI localisation unverified.", rbi=_U),
     "payu": _a(_U, "na", _U, _U, _U, [], "Not checked today.", rbi=_U),
     "entra_id": _a(_U, "yes", _U, _U, _U, ["rf_azure_hipaa"], "Entra ID is on the Microsoft BAA in-scope list (Office 365 commercial table)."),
     "msg91": _a(_U, "na", "na", _U, _U, [], "Not checked today.", rbi=_U),
     "github_actions": _a(_U, "na", "na", _U, _U, [], "Source code, not user data."),
+    "shopify": _a(_U, _U, _U, _U, _U, ["hst_shopify_data"], "Shopify's PCI/SOC/data-processing pages were not confirmed on 2026-11-13 (404 or silent): unknown."),
+    "appwrite": _a(_U, _U, _U, "yes", _U, ["appwrite_compliance"], "SOC 2 Type II; no ISO 27001, PCI, BAA or DPA statement on the compliance page."),
     "self_hosted": _a("self", "self", "self", "self", "self", [], "Self-hosted: the team carries the control.", rbi="self", dpdp="na"),
 }
 
 # Cell-level overrides where a single cell has a different source than the vendor-level list.
 FACT_SOURCES = {
-    ("gcp", "pci_dss"): ["rf_gcp_filestore_compliance"],
-    ("gcp", "iso27001"): ["rf_gcp_iso"],
-    ("gcp", "hipaa"): ["rf_gcp_hipaa"],
+    ("gcp", "iso27001"): ["rf_gcp_iso", "gcp_services_in_scope"],
+    ("gcp", "soc2"): ["gcp_services_in_scope"],
+    ("gcp", "gdpr"): ["gcp_cdpa"],
 }
 
 ALIASES = {"do": "digitalocean", "atlas": "mongodb_atlas", "mongodb": "mongodb_atlas", "firebase": "firebase_auth",
-           "entra": "entra_id", "azure_ad": "entra_id", "identity_platform": "gcp_identity_platform"}
+           "entra": "entra_id", "azure_ad": "entra_id", "identity_platform": "gcp_identity_platform",
+           "rds": "aws_rds", "aurora": "aurora_postgres", "cloud_run": "gcp_cloud_run", "cloud_sql": "gcp_cloud_sql", "gcs": "gcp_gcs",
+           "s3": "aws_s3", "cosmosdb": "azure_cosmosdb", "lightsail": "aws_lightsail", "fly_machines": "fly"}
 
 
 def attestation(vendor, regime):

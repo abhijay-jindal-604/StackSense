@@ -112,7 +112,7 @@ _f("scale.geographic_spread", "enum", default="single_country", enum=GEO_SPREAD,
    affects=["hosting", "supporting", "warnings"], sources=["cloudflare_network"])
 _f("scale.peak_rps", "integer", minimum=0, group="Scale", label="Peak requests/second", extra=True,
    why="Overrides the engine's request-rate estimate (0.2 req/s per concurrent user) when known.",
-   affects=["hosting", "supporting", "cost"])
+   affects=["hosting", "supporting", "cost"], sources=["sre_handling_overload"])
 
 # ---------------------------------------------------------------- team
 _f("team.size", "integer", required=True, minimum=1, group="Team", label="Team size (engineers)",
@@ -133,7 +133,7 @@ _f("team.has_devops", "boolean", default=False, group="Team", label="Has DevOps 
    affects=["hosting", "database", "supporting"], sources=["dora_2024"])
 _f("team.willing_to_learn", "boolean", default=True, group="Team", label="Willing to learn a new language", extra=True,
    why="When false, components outside team.languages receive a much heavier penalty.",
-   affects=["frontend", "backend"])
+   affects=["frontend", "backend"], sources=["dora_learning_culture", "so_survey_2025"])
 
 # ---------------------------------------------------------------- budget/timeline
 _f("budget.monthly_infra_usd", "number", required=True, minimum=0, group="Budget & timeline",
@@ -178,11 +178,12 @@ _f("infrastructure.existing_licences", "list", default=[], item_enum=LICENCES, g
 _f("infrastructure.lock_in_tolerance", "enum", default="medium", enum=LOCK_IN, group="Infrastructure",
    label="Vendor lock-in tolerance", extra=True,
    why="Low tolerance penalises proprietary BaaS/serverless APIs (Firebase, DynamoDB, Workers-only APIs) "
-       "in favour of portable Postgres + containers.", affects=["backend", "database", "hosting"])
+       "in favour of portable Postgres + containers.", affects=["backend", "database", "hosting"],
+   sources=["hohpe_lockin"])
 _f("infrastructure.open_source_only", "boolean", default=False, group="Infrastructure",
    label="Open-source components only", extra=True,
    why="Filters out proprietary software (managed services running open-source engines remain allowed).",
-   affects=["backend", "database", "supporting"])
+   affects=["backend", "database", "supporting"], sources=["osi_osd"])
 
 # ---------------------------------------------------------------- requirements
 _f("requirements.realtime", "boolean", default=False, group="Requirements", label="Realtime",
@@ -231,7 +232,7 @@ _f("requirements.notifications", "list", default=[], item_enum=NOTIFICATIONS, gr
    sources=["fcm_docs"])
 _f("requirements.background_jobs", "boolean", default=False, group="Requirements", label="Background jobs", extra=True,
    why="Scheduled/async work needs a queue or job runner; small apps use a DB-backed queue instead of a broker.",
-   affects=["supporting"])
+   affects=["supporting"], sources=["queue_load_leveling", "pgboss"])
 _f("requirements.consistency", "enum", default="auto", enum=CONSISTENCY, group="Requirements",
    label="Consistency requirement", extra=True,
    why="'strong' forces ACID relational stores; 'auto' infers strong for money, ledgers and bookings.",
@@ -242,7 +243,7 @@ _f("requirements.data_shape", "enum", default="auto", enum=DATA_SHAPE, group="Re
    affects=["database"], sources=["db_engines", "timescale_docs", "clickhouse_docs"])
 _f("requirements.cms", "enum", default="auto", enum=CMS, group="Requirements", label="Content management", extra=True,
    why="Whether non-developers edit content (headless CMS) or the owner writes Markdown in git.",
-   affects=["supporting", "backend"])
+   affects=["supporting", "backend"], sources=["decap_cms", "payload_docs"])
 
 # ---------------------------------------------------------------- compliance & priorities
 _f("compliance", "list", default=[], item_enum=COMPLIANCE, group="Compliance", label="Compliance regimes",
@@ -281,16 +282,3 @@ def schema_for_ui() -> dict:
     for spec in FIELDS.values():
         groups.setdefault(spec["group"], []).append(spec)
     return {"groups": [{"name": g, "fields": f} for g, f in groups.items()]}
-
-
-# Research sources for the StackSense extras that were declared without any.
-_EXTRA_SOURCES = {
-    "scale.peak_rps": ["aws_well_architected"],
-    "requirements.background_jobs": ["sqs_docs", "pgboss"],
-    "requirements.cms": ["payload_docs", "hugo_docs"],
-    "infrastructure.lock_in_tolerance": ["aws_well_architected"],
-    "team.willing_to_learn": ["so_survey_2025"],
-    "infrastructure.open_source_only": ["db_engines"],
-}
-for _p, _s in _EXTRA_SOURCES.items():
-    FIELDS[_p]["sources"] = list(_s)

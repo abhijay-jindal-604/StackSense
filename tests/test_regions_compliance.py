@@ -54,8 +54,11 @@ class TestSources(unittest.TestCase):
                 yield "cell:%s/%s" % (v, r), s
 
     def test_keys_resolve_in_fact_registry(self):
+        # Region/attestation facts may cite any registry key, but the page must have been read in this pass.
+        from stacksense.kb.sources import SOURCES as ALL
         for where, s in self._all_keys():
-            self.assertIn(s, FACT_SOURCES, where)
+            self.assertIn(s, ALL, where)
+            self.assertEqual(ALL[s][2], "2026-11-13", (where, s))
         for k, (title, url, accessed) in FACT_SOURCES.items():
             self.assertTrue(url.startswith("https://"), k)
             self.assertEqual(accessed, "2026-11-13")
@@ -83,6 +86,13 @@ class TestKeyFacts(unittest.TestCase):
             self.assertEqual(regions_for(p, "india"), [], p)
         self.assertFalse(regions.region_ok("neon", "india"))
 
+    def test_regions_are_region_ids_only(self):
+        for key, e in regions.ENTRIES.items():
+            for g in ("india", "eu", "us"):
+                v = e["residency"][g]
+                if isinstance(v, list) and key != "self_hosted":
+                    self.assertFalse(any("*" in x for x in v), (key, g, v))
+
     def test_india_regions(self):
         self.assertEqual(regions_for("supabase", "india"), ["ap-south-1"])
         self.assertIn("bom1", regions_for("vercel", "india"))
@@ -92,13 +102,16 @@ class TestKeyFacts(unittest.TestCase):
         self.assertIn("centralindia", regions_for("azure", "india"))
 
     def test_product_level_exceptions(self):
-        self.assertEqual(regions_for("fly", "india"), ["bom"])
+        self.assertEqual(regions_for("fly", "india"), [])  # bom absent from the official regions list
         self.assertEqual(regions_for("fly_managed_postgres", "india"), [])
-        self.assertEqual(regions_for("bedrock", "india"), ["in.*"])
-        self.assertNotIn("global.*", sum((v for v in regions.ENTRIES["bedrock"]["residency"].values() if isinstance(v, list)), []))
+        self.assertEqual(regions_for("bedrock", "india"), ["ap-south-1", "ap-south-2"])
+        self.assertEqual(regions.INFERENCE_PROFILES["bedrock"]["india"], "in.")
+        self.assertEqual(regions.INFERENCE_PROFILES["bedrock"]["none"], "global.")
         self.assertIn("jurisdiction:eu", regions_for("cloudflare_r2", "eu"))
         self.assertEqual(regions_for("cloudflare", "india"), UNKNOWN)
-        self.assertEqual(regions_for("azure_managed_redis", "india"), UNKNOWN)
+        self.assertEqual(regions_for("azure_managed_redis", "india"), ["centralindia"])
+        self.assertEqual(regions_for("azure_container_apps", "india"), UNKNOWN)
+        self.assertEqual(regions_for("firebase_app_hosting", "india"), [])
 
     def test_eu_excludes_non_eu_regions(self):
         self.assertNotIn("eu-west-2", regions_for("aws", "eu"))
@@ -117,7 +130,16 @@ class TestKeyFacts(unittest.TestCase):
         self.assertEqual(attestation_in_region("supabase", "hipaa", "us"), "plan:hipaa_addon")
 
     def test_attestations(self):
-        self.assertEqual(attestation("aws", "hipaa"), "yes")
+        self.assertEqual(attestation("aws", "hipaa"), "unknown")  # per service only
+        self.assertEqual(attestation("aws_ecs_fargate", "hipaa"), "yes")
+        self.assertEqual(attestation("aws_lightsail", "hipaa"), "no")
+        self.assertEqual(attestation("aws_lightsail", "iso27001"), "no")
+        self.assertEqual(attestation("gcp_cloud_sql", "pci_dss"), "yes")
+        self.assertEqual(attestation("firebase_app_hosting", "soc2"), "no")
+        self.assertEqual(attestation("azure_sql", "iso27001"), "yes")
+        self.assertEqual(attestation("azure_sql", "hipaa"), "unknown")
+        self.assertEqual(attestation("azure_postgres", "hipaa"), "yes")
+        self.assertEqual(attestation("supabase", "gdpr"), "yes")
         self.assertEqual(attestation("vercel", "hipaa"), "plan:pro_addon")
         self.assertEqual(attestation("neon", "hipaa"), "plan:scale")
         self.assertEqual(attestation("self_hosted", "pci_dss"), "self")

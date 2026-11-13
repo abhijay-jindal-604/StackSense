@@ -67,8 +67,8 @@ class DatabaseModel(unittest.TestCase):
 
     def test_fail_closed_when_region_unverified(self):
         by = {r["id"]: r for r in DB}
-        for rid in ("cosmosdb", "snowflake"):
-            self.assertEqual(by[rid]["regions"], {"india": [], "eu": [], "us": []})
+        self.assertEqual(by["snowflake"]["regions"], {"india": [], "eu": [], "us": []})
+        self.assertIn("centralindia", by["cosmosdb"]["regions"]["india"])  # foundational service, verified 2026-11-13
         self.assertEqual(by["cloudflare_d1"]["regions"]["india"], [])
         for k in by["snowflake"]["attest"]:
             self.assertEqual(by["snowflake"]["attest"][k], "no")
@@ -123,7 +123,9 @@ class OfferingsT(unittest.TestCase):
         by = {o["id"]: o for o in kb.OFFERINGS}
         self.assertEqual(by["postgres__fly"]["regions"]["india"], [])      # no MPG in bom
         self.assertEqual(by["postgres__neon"]["regions"]["india"], [])     # no Neon India region
-        self.assertEqual(by["sqlserver__azure"]["regions"]["india"], [])   # unverified
+        self.assertIn("centralindia", by["sqlserver__azure"]["regions"]["india"])  # foundational service
+        self.assertEqual(by["sqlserver__azure"]["attest"]["hipaa_baa"], "no")         # per-service list unreadable
+        self.assertEqual(by["sqlserver__azure"]["attest"]["iso27001"], "yes")
         self.assertIn("BLR1", by["postgres__digitalocean"]["regions"]["india"])
         self.assertIn("ap-south-1", by["postgres__aws"]["regions"]["india"])
         self.assertIn("centralindia", by["postgres__azure"]["regions"]["india"])

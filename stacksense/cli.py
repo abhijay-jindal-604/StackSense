@@ -175,10 +175,11 @@ def _cmd_kb(args) -> int:
         for layer in kb.LAYERS:
             _out(f"  {layer:<16} {st['maintained_per_layer'][layer]:>3} / min {st['minimum_per_layer'][layer]}")
         return 0
-    problems = kb.check()
+    core = getattr(args, "core", False)
+    problems = kb.check(core_only=core)
     for p in problems:
         _out(p)
-    _out(f"kb check: {len(problems)} problem(s)")
+    _out(f"kb check{' --core' if core else ''}: {len(problems)} problem(s)")
     return 1 if problems else 0
 
 
@@ -203,7 +204,9 @@ def build_parser() -> argparse.ArgumentParser:
     ke = ksub.add_parser("export", help="dump the knowledge base as JSON")
     ke.add_argument("-o", "--out", default=None)
     ksub.add_parser("stats", help="record counts per layer")
-    ksub.add_parser("check", help="integrity and minimum-count problems (exit 1 if any)")
+    kc = ksub.add_parser("check", help="integrity, source, consistency and minimum-count problems (exit 1 if any)")
+    kc.add_argument("--core", action="store_true",
+                    help="minimum counts for core layers only (frontend, backend, database, hosting)")
     k.set_defaults(func=_cmd_kb)
     for name in _LATER:
         p = sub.add_parser(name, help="not available yet", add_help=False)

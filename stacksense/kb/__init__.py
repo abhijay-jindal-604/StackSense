@@ -86,15 +86,38 @@ def counts() -> dict:
     return out
 
 
-def minimum_count_problems() -> list[str]:
+def minimum_count_problems(layers=None) -> list[str]:
     c = counts()
     return [f"layer {layer}: {c[layer]} maintained records, below minimum count {n}"
-            for layer, n in MIN_COUNTS.items() if c[layer] < n]
+            for layer, n in MIN_COUNTS.items() if c[layer] < n and (layers is None or layer in layers)]
 
 
-def check() -> list[str]:
-    """All problems: integrity first, then minimum counts. Empty list = healthy."""
-    return integrity_problems() + minimum_count_problems()
+def consistency_problems() -> list[str]:
+    """Region/attestation cells must equal kb.regions / kb.compliance for every bound id, and every record or
+    offering that claims a vendor attestation or a concrete region list must be bound (kb.bindings)."""
+    from . import bindings
+    p: list[str] = []
+    for r in list(RECORDS) + list(OFFERINGS):
+        b = bindings.BINDINGS.get(r["id"])
+        if b is None:
+            claims = sorted(k for k, v in r["attest"].items() if v == "yes" or v.startswith("plan:"))
+            regs = sorted(g for g, v in r["regions"].items() if v and v != ["*"])
+            if claims or regs:
+                p.append(f"{r['id']}: claims {claims or regs} but has no kb.bindings entry")
+            continue
+        rk, ak = b
+        if rk is not None and r["regions"] != bindings.regions_dict(rk):
+            p.append(f"{r['id']}: regions differ from kb.regions:{rk}")
+        if ak is not None and r["attest"] != bindings.attest_dict(ak):
+            p.append(f"{r['id']}: attest differs from kb.compliance:{ak}")
+    return p
+
+
+def check(core_only: bool = False) -> list[str]:
+    """All problems: integrity (incl. sources), region/attestation consistency, then minimum counts.
+    ``core_only`` limits the minimum-count check to the core layers (supporting layers are Phase 3)."""
+    return (integrity_problems() + consistency_problems()
+            + minimum_count_problems(CORE_LAYERS if core_only else None))
 
 
 def require_valid() -> None:
