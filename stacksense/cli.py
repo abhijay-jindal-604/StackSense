@@ -10,7 +10,7 @@ from . import engine, output
 from .io import load_scenarios, output_name, write_output
 from .validate import validate
 
-_LATER = ("serve", "wizard", "explain", "diff")
+_LATER = ("wizard", "explain", "diff")
 _PUBLIC_DIR = Path(__file__).resolve().parent.parent / "scenarios" / "public"
 
 
@@ -150,6 +150,15 @@ def _cmd_later(args) -> int:
     return 2
 
 
+def _cmd_serve(args) -> int:
+    from . import server
+    try:
+        return server.serve(args.host, args.port, args.open)
+    except OSError as e:
+        _err(f"cannot start server on {args.host}:{args.port}: {e.strerror or e}")
+        return 2
+
+
 def _cmd_kb(args) -> int:
     import json
 
@@ -199,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     v.set_defaults(func=_cmd_validate)
     s = sub.add_parser("selftest", help="run the public scenarios and check output conformance")
     s.set_defaults(func=_cmd_selftest)
+    sv = sub.add_parser("serve", help="start the local web UI and JSON API")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--open", action="store_true", help="open the browser")
+    sv.set_defaults(func=_cmd_serve)
     k = sub.add_parser("kb", help="knowledge base: export, stats, check")
     ksub = k.add_subparsers(dest="kb_action", metavar="action", required=True)
     ke = ksub.add_parser("export", help="dump the knowledge base as JSON")

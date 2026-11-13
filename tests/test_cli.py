@@ -138,7 +138,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(c._run_exit_code(2, [], ok), 2)
 
     def test_later_subcommands(self):
-        r = cli("serve")
+        r = cli("wizard")
         self.assertEqual(r.returncode, 2)
         self.assertIn("not available yet", r.stderr)
         self.assertIn("wizard", cli("--help").stdout)
