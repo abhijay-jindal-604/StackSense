@@ -33,7 +33,6 @@ KNOWN_GAPS: dict[str, str] = {
     "H16": "database chose Neon Postgres, wanted TimescaleDB/InfluxDB/ClickHouse",
     "H17": "missing LATENCY_AGGRESSIVE warning",
     "H28": "backend chose Payload CMS, wanted Shopify",
-    "H29": "H29_01: missing LATENCY_AGGRESSIVE warning",
     "H30": "H30_P1: supporting observability changed vs P1 (locality)",
     "H31": "forbidden 'Amazon' in other choice 'Amazon SES' (cloud_preference=none)",
     "H36": "supporting layer realtime present although requirements.realtime=false",
