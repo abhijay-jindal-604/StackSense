@@ -334,6 +334,18 @@ class OtherContributions(unittest.TestCase):
         self.assertEqual(value(rec(lock_in=3), p, "lock_in"), -1.5)
         self.assertEqual(value(rec(lock_in=3), P(infrastructure__lock_in_tolerance="high"), "lock_in"), 0)
 
+    def test_baas_skill_uses_function_languages(self):
+        b = dict(rec(layer="backend", kind="baas", languages=[]), function_languages=["typescript"])
+        self.assertEqual(value(b, P(team__languages=["typescript"]), "skill_fit"), W["skill_known_factor"])
+        self.assertLess(value(b, P(team__languages=["php"]), "skill_fit"), 0)
+
+    def test_microsoft_licence_credits_azure_hosts_only(self):
+        lic = P(infrastructure__existing_licences=["microsoft_enterprise"])
+        other = rec(layer="hosting", kind="paas", runtime=["dotnet", "node"], cloud_affinity=["any"])
+        azure = rec(layer="hosting", kind="paas", runtime=["dotnet"], cloud_affinity=["azure"])
+        self.assertEqual(value(other, lic, "reuse"), 0)
+        self.assertEqual(value(azure, lic, "reuse"), W["reuse_licence"])
+
     def test_growth_penalises_baas_backend(self):
         p = P(team__size=3, team__growth_12_months=15)
         self.assertEqual(value(rec(layer="backend", kind="baas", languages=[]), p, "growth_fit"), W["growth_baas"])

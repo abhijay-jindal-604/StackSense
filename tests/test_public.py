@@ -297,9 +297,8 @@ class P6Tests(_Base):
         self.assertEqual(self.layer("database")["kb_id"], "postgres")
         self.assertRegex(self.layer("database")["choice"], r"BLR1|ap-south|centralindia|asia-south")
 
-    @unittest.expectedFailure
     def test_backend_primary(self):
-        # Gap (no input signal): NestJS shares JavaScript with the Expo app (+1.5, no language_count -0.75)
+        # met since the BaaS skill term (Supabase functions in TypeScript match the JS team)
         # and leads Django by 0.56; Django's admin advantage (8.1) has no field or description signal.
         self.assertIn(self.layer("backend")["kb_id"], ("django", "supabase"))
 

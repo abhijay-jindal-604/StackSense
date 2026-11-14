@@ -50,7 +50,7 @@ W: dict[str, Any] = {
     "skill_known_threshold": _languages.KNOWN_THRESHOLD, "skill_known_factor": 4,
     "skill_penalty": {"senior": -2, "intermediate": -3, "mixed": -3, "beginner": -4},
     "skill_unwilling_factor": 2, "skill_pressure_min": 2, "skill_pressure_penalty": -1,
-    "skill_min": -8, "skill_no_languages_factor": 0.6,
+    "skill_min": -8, "skill_no_languages_factor": 0.6, "skill_function_factor": 1.0,
     "skill_html_css_ssg": _languages.HTML_CSS_SSG_AFFINITY,
     "skill_sql_bonus": _languages.SQL_SKILL_BONUS, "skill_sql_penalty": _languages.SQL_SKILL_PENALTY,
     "sql_kinds": ("embedded", "olap", "relational", "timeseries"),
@@ -96,7 +96,7 @@ W: dict[str, Any] = {
     # 17 gdpr_pref
     "gdpr_eu_region": 2,
     # 18 growth_fit
-    "growth_ratio": 2, "growth_min": 10, "growth_maint_factor": 1, "growth_typed": 1, "growth_baas": -2,
+    "growth_ratio": 2, "growth_min": 10, "growth_maint_factor": 1, "growth_typed": 1, "growth_baas": -7,
     # 19 device_fit
     "device": {"native": 2, "cross_compiled": 1, "cross_js": -0.5, "webview": -1.5, "desktop_shell": -3},
     # 20 security_fit
@@ -395,8 +395,11 @@ def _skill(tech, p, ctx):
         return (W["skill_sql_penalty"], ("team.languages",),
                 f"{_languages_label(p)} includes SQL, but {tech['name']} is not queried with SQL.")
     rec = tech.get("languages") or []
+    fn = W["skill_function_factor"] if not rec and tech.get("function_languages") else 1.0
+    rec = rec or tech.get("function_languages") or []   # a BaaS: the languages of its functions/hooks
     if not rec:
         return None
+    via = " (in its functions)" if not tech.get("languages") and tech.get("function_languages") else ""
     if not langs:
         v = W["skill_no_languages_factor"] * (_attr(tech, "popularity") - 3)
         return (v, ("team.languages",),
@@ -414,8 +417,8 @@ def _skill(tech, p, ctx):
     if best >= W["skill_known_threshold"]:
         k, n = pair
         how = f"includes {k}" if k == n else f"includes {k}, close to {n}"
-        return (W["skill_known_factor"] * best, ("team.languages",),
-                f"{_languages_label(p)} {how}, which {tech['name']} uses (affinity {_num(best)}).")
+        return (fn * W["skill_known_factor"] * best, ("team.languages",),
+                f"{_languages_label(p)} {how}, which {tech['name']} uses{via} (affinity {_num(best)}).")
     exp = val(p, "team.experience", "intermediate")
     v = W["skill_penalty"].get(exp, W["skill_penalty"]["intermediate"])
     fields = ["team.languages", "team.experience"]
@@ -430,9 +433,9 @@ def _skill(tech, p, ctx):
         fields.append("timeline.mvp_weeks")
         extra.append(f"timeline.mvp_weeks={fmt(val(p, 'timeline.mvp_weeks'))} leaves little time to learn "
                      f"(delivery pressure {p.delivery_pressure}/3)")
-    v = max(W["skill_min"], v)
+    v = fn * max(W["skill_min"], v)
     near = f" (best affinity {_num(best)} from {pair[0]})" if pair else ""
-    reason = (f"{_languages_label(p)} does not include {rec_txt} needed by {tech['name']}{near}; "
+    reason = (f"{_languages_label(p)} does not include {rec_txt} needed by {tech['name']}{via}{near}; "
               f"team.experience={exp}" + ("; " + "; ".join(extra) if extra else "") + ".")
     return v, tuple(fields), reason
 
@@ -947,8 +950,10 @@ def _reuse(tech, p, ctx):
                 fields.append("infrastructure.existing_systems")
                 break
     lic = [x for x in (val(p, "infrastructure.existing_licences") or []) if x in LICENCE_ECOSYSTEM]
+    # a host that merely runs .NET/JVM gains nothing from a vendor licence; only the vendor's own cloud does
+    leco = teco - {"dotnet", "jvm", "python", "node"} if ctx.layer == "hosting" else teco
     for x in sorted(lic):
-        common = sorted(set(LICENCE_ECOSYSTEM[x]) & teco)
+        common = sorted(set(LICENCE_ECOSYSTEM[x]) & leco)
         if common:
             v += W["reuse_licence"]
             why.append(f"infrastructure.existing_licences includes {x}, which covers {tech['name']}")

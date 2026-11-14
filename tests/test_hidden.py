@@ -27,8 +27,6 @@ CORE = ("frontend", "backend", "database", "hosting")
 
 # id -> one-line reason from the real failing assertion (coordinator re-syncs after concurrent work).
 KNOWN_GAPS: dict[str, str] = {
-    "H14": "backend chose NestJS (Node.js 26 LTS), wanted Laravel",
-    "H15": "neither SKILL_MISMATCH nor SKILL_GAP_NO_LEARNING present",
     "H16": "database chose Neon Postgres, wanted TimescaleDB/InfluxDB/ClickHouse",
     "H17": "missing LATENCY_AGGRESSIVE warning",
     "H28": "backend chose Payload CMS, wanted Shopify",

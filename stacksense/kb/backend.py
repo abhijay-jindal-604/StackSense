@@ -644,6 +644,23 @@ RECORDS = [
          sources=["fowler_monolith_first"]),
 ]
 
+# Server-side logic of a BaaS is still code: the languages its functions/hooks are written in. Used only by the
+# skill-fit term (scoring._skill), never for shared-language synergies (client code is not BaaS code).
+_FUNCTION_LANGUAGES = {
+    "supabase": (["typescript", "javascript"], "Supabase Edge Functions are written in TypeScript (or JavaScript) and run on Deno.", "supabase_docs"),
+    "firebase": (["javascript", "typescript", "python"], "Cloud Functions for Firebase are written in JavaScript/TypeScript (Node.js) or Python.", "firebase_docs"),
+    "pocketbase": (["go", "javascript"], "PocketBase is extended in Go (as a framework) or with JavaScript hooks.", "pocketbase_docs"),
+    "appwrite": (["javascript", "typescript", "python", "php", "ruby", "dart", "go", "java", "kotlin", "swift", "csharp"],
+                 "Appwrite Functions run in many runtimes, including Node.js, Python, PHP, Ruby, Dart, Go, Java/Kotlin, Swift and .NET.", "appwrite_docs"),
+}
+for _r in RECORDS:
+    if _r["id"] in _FUNCTION_LANGUAGES:
+        _langs, _text, _src = _FUNCTION_LANGUAGES[_r["id"]]
+        _r["function_languages"] = list(_langs)
+        _r["facts"] = list(_r["facts"]) + [fact(_text, _src, "V")]
+        if _src not in _r["sources"]:
+            _r["sources"] = list(_r["sources"]) + [_src]
+
 # Region and attestation cells of bound records come from kb.regions / kb.compliance (kb.bindings).
 from .bindings import bind as _bind  # noqa: E402
 
