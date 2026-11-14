@@ -124,9 +124,9 @@ CATALOGUE: dict[str, Entry] = {
                           "pages only. Ignored for the stack."),
     "OFFLINE_API_ONLY": _e(W, ["requirements.offline_support", "project.platforms"],
                            "offline_support applies to clients; an API-only product cannot work offline. Ignored."),
-    "API_ONLY_WITH_OTHER_PLATFORMS": _e(W, ["project.platforms"],
-                                        "platforms lists api_only together with other platforms; the other "
-                                        "platforms are treated as the clients of that API.", source="validate"),
+    "API_ONLY_WITH_CLIENTS": _e(I, ["project.platforms"],
+                                "api_only listed with {others}: treating the API as a first-party public surface in "
+                                "addition to the clients.", source="validate"),
     "OFFLINE_WEB_LIMITS": _e(I, ["requirements.offline_support"],
                              "Offline on the web relies on a service worker and IndexedDB; storage can be evicted "
                              "by the browser."),
@@ -153,8 +153,9 @@ CATALOGUE: dict[str, Entry] = {
                      "DPDP Act 2023: consent records, breach notification and a grievance contact are required; "
                      "cross-border transfer is allowed except to notified countries."),
     "PCI_SCOPE": _e(I, ["compliance", "requirements.payments"],
-                    "Card data never touches your servers: {gateway} hosted checkout/tokenisation keeps you at "
-                    "SAQ A. Storing card numbers yourself would bring full PCI DSS scope."),
+                    "Card data should never touch your servers: using {gateway}'s hosted payment page or tokenisation "
+                    "keeps card numbers off your systems and reduces your PCI DSS scope. Storing card numbers "
+                    "yourself would bring full PCI DSS scope."),
     "PCI_WITHOUT_PAYMENTS": _e(I, ["compliance", "requirements.payments"],
                                "pci_dss listed but payments=false; controls applied to hosting only."),
     "HIPAA_BAA": _e(W, ["compliance"],
@@ -209,12 +210,9 @@ CATALOGUE: dict[str, Entry] = {
                                    "{system} is on-premise while the new stack runs in {where}; a private link or "
                                    "scheduled sync is needed."),
     # ---- scale and shape
-    "USERS_12M_BELOW_LAUNCH": _e(W, ["scale.users_at_launch", "scale.users_12_months"],
-                                 "users_12_months ({u12}) is lower than users_at_launch ({launch}); the engine sizes "
-                                 "for the larger of the two.", source="validate"),
-    "PEAK_EXCEEDS_USERS": _e(W, ["scale.peak_concurrent_users", "scale.users_12_months"],
-                             "peak_concurrent_users ({peak}) is higher than users_12_months ({u12}); check the "
-                             "numbers.", source="validate"),
+    "SCALE_INCONSISTENT": _e(W, ["scale.users_at_launch", "scale.users_12_months",
+                                 "scale.peak_concurrent_users"],
+                             "{detail}; sizing used the larger figure.", source="validate"),
     "HYPERGROWTH": _e(I, ["scale.users_at_launch", "scale.users_12_months"],
                       "{x}x growth in 12 months: start on the smallest tier of the same stack and scale up; the "
                       "estimate shown is for month 12 ({users} users)."),
@@ -252,8 +250,6 @@ CATALOGUE: dict[str, Entry] = {
 # Codes of plan 6.3 that are documented but not emitted (reason in NOT_EMITTED).
 NOT_EMITTED: dict[str, str] = {
     "VENDOR_RISK": "the KB has no per-record risk facts yet",
-    "API_ONLY_WITH_CLIENTS": "validate.py already emits API_ONLY_WITH_OTHER_PLATFORMS for the same trigger",
-    "SCALE_INCONSISTENT": "validate.py already emits USERS_12M_BELOW_LAUNCH and PEAK_EXCEEDS_USERS",
 }
 
 
@@ -523,6 +519,11 @@ def detect(p, v=None) -> list[Conflict]:
     return out
 
 
+def _is_on_prem(ex, m) -> bool:
+    """True when a sibling match for the same input string carries the on_prem qualifier."""
+    return any(o.raw == m.raw and o.kind == "on_prem" for o in (getattr(ex, "matches", ()) or ()))
+
+
 def _existing(p) -> list[Conflict]:
     out = []
     ex = getattr(p, "existing", None)
@@ -546,7 +547,7 @@ def _existing(p) -> list[Conflict]:
             if sev:
                 out.append(conflict("EOL_EXISTING_SYSTEM", severity=sev, system=m.raw, status_text=text,
                                     date=ev["date"], advice=advice))
-        if (getattr(m, "family", "") == "database" and re.search(r"on[- ]?prem", m.raw, re.I)
+        if (getattr(m, "family", "") == "database" and _is_on_prem(ex, m)
                 and p.deployment in ("managed_cloud", "self_hosted_cloud_vm")):
             where = p.cloud or "a managed cloud"
             out.append(conflict("EXISTING_SYSTEM_CONFLICT", system=m.raw, where=where))
@@ -665,7 +666,7 @@ def _hipaa_vendors(records: Iterable[dict]) -> tuple[list[str], list[str]]:
 
 
 def post_checks(p, combo, supporting=None, cost=None, ranked: Mapping[str, list] | None = None,
-                *, existing_warnings: Iterable[dict] = ()) -> list[Conflict]:
+                *, existing_warnings: Iterable[dict] = (), budget_mode: str | None = None) -> list[Conflict]:
     """Rules of plan 6.3 that need the chosen stack (combo), supporting services and the cost band.
 
     Budget verdict warnings come from cost.py; this adds their relax effects and the budget codes cost.py
@@ -685,8 +686,13 @@ def post_checks(p, combo, supporting=None, cost=None, ranked: Mapping[str, list]
     # ---- budget
     if budget is not None and lo is not None:
         b = fmt(budget)
-        relax_text = (f"USD {b}/month is below the estimate USD {lo:,}-{hi:,}/month; the stack that best meets "
-                      "the hard constraints is kept and the budget is treated as a target.")
+        kept = ("the cheapest stack that meets the hard constraints is kept"
+                if budget_mode == "cheapest" else
+                "the stack chosen by the budget fallback is kept, as no cheaper option met the hard constraints"
+                if budget_mode == "fallback" else
+                "the recommended stack is kept")
+        relax_text = (f"USD {b}/month is below the estimate USD {lo:,}-{hi:,}/month; {kept} "
+                      "and the budget is treated as a target.")
         if budget == 0 and (_size_ge(p.size, "m") or lo > 0):
             feats = _features(p) or [f"a size-{p.size} workload"]
             add(conflict("ZERO_BUDGET_SCALE", users=_n(p.users), features=_join(feats), min=f"{lo:,}",
@@ -697,7 +703,7 @@ def post_checks(p, combo, supporting=None, cost=None, ranked: Mapping[str, list]
             add(conflict("BUDGET_EXCEEDED", min=f"{lo:,}", max=f"{hi:,}", budget=b, assumption=relax_text))
         avail = val(p, "requirements.availability")
         if _avail_ge(avail, "99.95") and verdict == "exceeded":
-            mult = _costs.AVAILABILITY_MULTIPLIERS.get(avail, (1.0, 1.0))
+            mult = tuple(getattr(cost, "availability_multiplier", None) or (1.0, 1.0))
             pct = f"{round((mult[0] - 1) * 100):d}-{round((mult[1] - 1) * 100):d}"
             add(conflict("AVAILABILITY_VS_BUDGET", availability=avail, pct=pct, min=f"{lo:,}", max=f"{hi:,}",
                          budget=b))

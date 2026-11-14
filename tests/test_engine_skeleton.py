@@ -58,3 +58,16 @@ class ScenarioIdTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EolAnchorAssumptionTests(unittest.TestCase):
+    def test_anchor_assumption_added_once_when_eol_judged(self):
+        import json
+        from pathlib import Path
+        from stacksense.kb import eol
+        raw = json.loads((Path(__file__).resolve().parent.parent / "scenarios" / "public" / "P5.json").read_text())
+        text = f"EOL judgements use the knowledge-base date {eol.KB_DATE.isoformat()} (kb.eol.KB_DATE), not the system clock."
+        out = engine.recommend(raw)
+        self.assertEqual(out["assumptions"].count(text), 1)
+        raw["infrastructure"]["existing_systems"] = []
+        self.assertNotIn(text, engine.recommend(raw)["assumptions"])

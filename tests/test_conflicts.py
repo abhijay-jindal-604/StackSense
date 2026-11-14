@@ -265,6 +265,8 @@ class PreRuleTests(unittest.TestCase):
                           eol=eol.verdict("php", "7.4")),
             ExistingMatch(raw="On-prem SQL Server 2019", pattern_id="sqlserver", family="database", kind="sqlserver",
                           eol=eol.verdict("sqlserver", "2019")),
+            ExistingMatch(raw="On-prem SQL Server 2019", pattern_id="on_prem", family="infrastructure",
+                          kind="on_prem"),
         )
         p2 = dataclasses.replace(p, existing=ExistingReport(matches=matches))
         found = [c for c in conflicts.detect(p2) if c.code in ("EOL_EXISTING_SYSTEM", "EXISTING_SYSTEM_CONFLICT")]
@@ -273,6 +275,21 @@ class PreRuleTests(unittest.TestCase):
         self.assertIn(("EOL_EXISTING_SYSTEM", "warning"), sev)         # SQL Server 2019 mainstream ended
         self.assertIn(("EXISTING_SYSTEM_CONFLICT", "warning"), sev)    # on-prem DB with an Azure stack
         self.assertTrue(any("2030-01-08" in c.message for c in found))
+
+
+    def test_on_prem_detected_from_sibling_match_not_text(self):
+        p = profile(load("P5"))
+
+        def codes(raw, extra):
+            ms = (ExistingMatch(raw=raw, pattern_id="sqlserver", family="database", kind="sqlserver"),) + extra
+            q = dataclasses.replace(p, existing=ExistingReport(matches=ms))
+            return {c.code for c in conflicts.detect(q)}
+        sib = ExistingMatch(raw="SQL Server 2019 (datacentre)", pattern_id="on_prem", family="infrastructure",
+                            kind="on_prem")
+        self.assertIn("EXISTING_SYSTEM_CONFLICT", codes("SQL Server 2019 (datacentre)", (sib,)))
+        self.assertNotIn("EXISTING_SYSTEM_CONFLICT", codes("on-prem SQL Server 2019", ()))
+        other = dataclasses.replace(sib, raw="something else")
+        self.assertNotIn("EXISTING_SYSTEM_CONFLICT", codes("SQL Server 2019 (datacentre)", (other,)))
 
 
 # ================================================================== effects
@@ -346,6 +363,31 @@ class PostRuleTests(unittest.TestCase):
         self.assertNotIn("HIPAA_BUDGET", post_codes(hip, FakeCombo(), cost=FakeCost(100, 200, "within")))
         self.assertIn("AVAILABILITY_VS_BUDGET", post_codes(load("P4"), FakeCombo(), cost=exceeded))
         self.assertNotIn("AVAILABILITY_VS_BUDGET", post_codes(load("P4"), FakeCombo(), cost=FakeCost(1, 2, "within")))
+
+    def test_availability_vs_budget_uses_cost_multiplier(self):
+        c = FakeCost(500, 900, "exceeded", [{"code": "BUDGET_EXCEEDED"}])
+        c.availability_multiplier = (1.30, 1.75)
+        found = [x for x in conflicts.post_checks(profile(load("P4")), FakeCombo(), FakeSup(), c)
+                 if x.code == "AVAILABILITY_VS_BUDGET"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("30-75%", found[0].message)
+
+    def test_budget_exceeded_text_matches_fallback_mode(self):
+        c = FakeCost(500, 900, "exceeded", [{"code": "BUDGET_EXCEEDED"}])
+
+        def text(mode):
+            got = conflicts.post_checks(profile(load("P2")), FakeCombo(), FakeSup(), c, budget_mode=mode)
+            return next(x.assumption for x in got if x.code == "BUDGET_EXCEEDED")
+        self.assertIn("cheapest stack that meets the hard constraints", text("cheapest"))
+        self.assertNotIn("best meets", text("cheapest"))
+        self.assertIn("recommended stack is kept", text(None))
+
+    def test_pci_scope_makes_no_vendor_claim(self):
+        got = conflicts.post_checks(profile(load("P2")), FakeCombo(), FakeSup(("payments", "razorpay")), None)
+        msg = next(x.message for x in got if x.code == "PCI_SCOPE")
+        self.assertNotIn("SAQ A", msg)
+        self.assertNotIn("hosted checkout", msg)
+        self.assertIn("reduces your PCI DSS scope", msg)
 
     def test_single_node(self):
         combo = FakeCombo(backend="django", database="sqlite", hosting="hetzner_compose")

@@ -177,9 +177,10 @@ class ValidateTests(unittest.TestCase):
         raw["project"]["platforms"] = ["api_only", "web"]
         v = validate(raw)
         self.assertEqual(v.errors, [])
-        codes = {n["code"] for n in v.notices}
-        self.assertTrue({"USERS_12M_BELOW_LAUNCH", "PEAK_EXCEEDS_USERS",
-                         "API_ONLY_WITH_OTHER_PLATFORMS"} <= codes)
+        codes = [n["code"] for n in v.notices]
+        self.assertEqual(codes.count("SCALE_INCONSISTENT"), 2)
+        self.assertIn("API_ONLY_WITH_CLIENTS", codes)
+        self.assertEqual(next(n["severity"] for n in v.notices if n["code"] == "API_ONLY_WITH_CLIENTS"), "info")
 
     def test_unknown_fields_notice(self):
         raw = base()

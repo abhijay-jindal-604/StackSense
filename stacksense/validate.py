@@ -250,20 +250,20 @@ def _validate(raw: Any, fill_defaults: bool) -> Validated:
     launch, u12 = profile.get("scale.users_at_launch"), profile.get("scale.users_12_months")
     peak = profile.get("scale.peak_concurrent_users")
     if isinstance(launch, (int, float)) and isinstance(u12, (int, float)) and u12 < launch:
-        notices.append({"code": "USERS_12M_BELOW_LAUNCH", "severity": "warning",
-                        "message": f"users_12_months ({u12}) is lower than users_at_launch ({launch}); the "
-                                   f"engine sizes for the larger of the two.",
+        notices.append({"code": "SCALE_INCONSISTENT", "severity": "warning",
+                        "message": f"users_12_months ({u12}) is lower than users_at_launch ({launch}); "
+                                   f"sizing used the larger figure.",
                         "fields": ["scale.users_at_launch", "scale.users_12_months"]})
     if isinstance(peak, (int, float)) and isinstance(u12, (int, float)) and peak > u12:
-        notices.append({"code": "PEAK_EXCEEDS_USERS", "severity": "warning",
+        notices.append({"code": "SCALE_INCONSISTENT", "severity": "warning",
                         "message": f"peak_concurrent_users ({peak}) is higher than users_12_months ({u12}); "
-                                   f"check the numbers.",
+                                   f"sizing used the larger figure.",
                         "fields": ["scale.peak_concurrent_users", "scale.users_12_months"]})
     if isinstance(plats, list) and "api_only" in plats and len(plats) > 1:
-        notices.append({"code": "API_ONLY_WITH_OTHER_PLATFORMS", "severity": "warning",
-                        "message": "platforms lists api_only together with other platforms; api_only means "
-                                   "no user-facing client, so the other platforms are treated as the clients "
-                                   "of that API.",
+        others = ", ".join(x for x in plats if x != "api_only")
+        notices.append({"code": "API_ONLY_WITH_CLIENTS", "severity": "info",
+                        "message": f"api_only listed with {others}: treating the API as a first-party public "
+                                   f"surface in addition to the clients.",
                         "fields": ["project.platforms"]})
 
     return Validated(profile, errors, assumptions, notices, frozenset(provided))

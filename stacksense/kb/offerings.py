@@ -258,13 +258,28 @@ _HA_SELF = {
     "neo4j": ["Causal cluster (Enterprise)", "Single instance (Community)"],
     "tigerbeetle": ["Six-replica cluster (strict quorum)"],
 }
+def _self_name(rec: dict) -> str:
+    """'Self-managed <product> <major>': drops a managed-cloud alias ('/ Azure SQL Database'), keeps a
+    parenthetical qualifier last, and never repeats a version already in the engine name."""
+    name = rec["name"]
+    if " / Azure " in name:
+        name = name.split(" / Azure ", 1)[0]
+    note = ""
+    if name.endswith(")") and " (" in name:
+        name, note = name[:-1].split(" (", 1)
+        note = f" ({note})"
+    major = rec.get("current_major")
+    if major and name.split()[-1] != str(major):
+        name = f"{name} {major}"
+    return f"Self-managed {name}{note}"
+
+
 for _r in RECORDS:
     if _r["status"] != "maintained" or _r["id"] not in _HA_SELF:
         continue
-    _major = f" {_r['current_major']}" if _r.get("current_major") else ""
     _cost = {k: tuple(v) for k, v in _r["cost"].items()}  # engine record bands = machine cost when self-run
     OFFERINGS.append(_o(
-        _r["id"], "self_hosted", f"Self-managed {_r['name']}{_major}",
+        _r["id"], "self_hosted", _self_name(_r),
         regions={"india": ["*"], "eu": ["*"], "us": ["*"]}, attest=dict(SELF), cost=_cost, ha=_HA_SELF[_r["id"]],
         major=_r.get("current_major"), until=_r.get("supported_until"), kind="self_managed", needs_internet=False,
         region_fact=("runs wherever the team deploys it (VM, container, Kubernetes, on-premise or air-gapped); the region is the team's choice.", "db_engines", "U"),

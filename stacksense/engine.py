@@ -26,6 +26,7 @@ import itertools
 from collections import Counter
 from typing import Any
 
+from .kb import eol as kb_eol
 from . import architecture, combine, conflicts, cost, description, existing, explain, filters, kb, output, profile
 from . import scoring, status, supporting
 from .io import LoadedScenario
@@ -436,6 +437,9 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     ex_warn, integration = existing_outputs(p)
     warnings += ex_warn
     assumptions: list[str] = list(v.assumptions) + list(p.assumptions) + conflicts.assumptions(pre)
+    if any(m.eol for m in (p.existing.matches if p.existing else ())):
+        assumptions.append(f"EOL judgements use the knowledge-base date {kb_eol.KB_DATE.isoformat()} "
+                           "(kb.eol.KB_DATE), not the system clock.")
     relaxed: list[str] = []
     cw, cr = _conflicts(pre, warnings)
     warnings += cw
@@ -475,7 +479,8 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     assumptions += list(sup.assumptions)
     est = cost.estimate(p, best.stack(), extra_lines=sup.cost_lines(p))
     warnings += list(est.warnings)
-    post = conflicts.post_checks(p, best, sup, est, ranked, existing_warnings=warnings)
+    post = conflicts.post_checks(p, best, sup, est, ranked, existing_warnings=warnings,
+                                 budget_mode=getattr(getattr(result, "budget", None), "mode", None))
     cw, cr = _conflicts(post, warnings)
     warnings += cw
     relaxed += [r for r in cr if r not in relaxed]

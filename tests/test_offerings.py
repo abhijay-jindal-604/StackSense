@@ -263,3 +263,15 @@ class InvariantTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfManagedNameTests(unittest.TestCase):
+    def test_no_duplicated_or_misleading_version_token(self):
+        names = {o["id"]: o["name"] for o in kb.OFFERINGS if o["host"] == "self_hosted"}
+        self.assertEqual(names["influxdb3__self_hosted"], "Self-managed InfluxDB 3")
+        self.assertEqual(names["sqlserver__self_hosted"], "Self-managed Microsoft SQL Server 2022")
+        self.assertEqual(names["timescaledb__self_hosted"], "Self-managed TimescaleDB 2 (PostgreSQL extension)")
+        for n in names.values():
+            toks = n.split()
+            self.assertTrue(all(a != b for a, b in zip(toks, toks[1:])), n)
+            self.assertNotIn("Azure", n)
