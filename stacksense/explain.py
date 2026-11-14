@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping
 
-from . import kb, offerings
+from . import filters, kb, offerings
 from .scoring import DYNAMIC_FIELDS, Contribution, Scored, fmt, val
 
 MAX_DRIVEN_BY = 8
@@ -217,9 +217,13 @@ def hard_sentence(p, layer: str, tech: dict | None, *, region: str | None = None
     dep = getattr(p, "deployment", "managed_cloud")
     if dep != "managed_cloud" and layer == "hosting":
         parts.append(f"fits {F_DEPLOY}={dep} ({tech.get('kind')} host)")
+    portable = None
+    if res == "other" and tech.get("id") and tech.get("layer"):
+        portable = filters.residency_pass_reason(tech, p, layer)
     if not parts:
-        return None
-    return f"{tech['name']} " + ", ".join(parts) + "."
+        return portable
+    text = f"{tech['name']} " + ", ".join(parts) + "."
+    return f"{portable} {text}" if portable else text
 
 
 # ------------------------------------------------------------------ why_not

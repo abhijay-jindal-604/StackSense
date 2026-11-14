@@ -219,6 +219,13 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertNotEqual(r["budget_verdict"]["verdict"], "exceeded")
         self.assertIsNotNone(r["decision_trace"]["combinations"])
 
+    def test_residency_other_justification_says_why_component_passes(self):
+        r = engine.recommend(load(EDGE / "H32_residency_other.json"))
+        self.assertNotEqual(r["status"], "infeasible")
+        hosting = r["stack"]["hosting"] if "stack" in r else r["hosting"]
+        self.assertIn("region-portable", hosting["justification"])
+        self.assertIn("confirm the provider region", hosting["justification"])
+
     def test_no_compatible_stack_names_blocker(self):
         # finding 8: residency=other is named as the blocking hard filter (P5: managed cloud, iso27001, no cloud)
         r = run("P5", infrastructure__data_residency="other", infrastructure__cloud_preference="none")
