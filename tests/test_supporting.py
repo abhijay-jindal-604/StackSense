@@ -129,7 +129,12 @@ class TriggerTests(unittest.TestCase):
 
     def test_realtime(self):
         self.assertIn("realtime", self.slots(scenario(**{"requirements.realtime": True})))
-        self.assertIn("realtime", self.slots(scenario(**{"project.description": "Buyers chat with sellers."})))
+        chat = scenario(**{"project.description": "Buyers chat with sellers."})
+        chat.get("requirements", {}).pop("realtime", None)          # field absent: the description signal counts
+        self.assertIn("realtime", self.slots(chat))
+        # an explicit requirements.realtime=false wins over the description (DESCRIPTION_MISMATCH reports it)
+        self.assertNotIn("realtime", self.slots(scenario(**{"project.description": "Buyers chat with sellers.",
+                                                             "requirements.realtime": False})))
         self.assertIn("realtime", self.slots(scenario(**{"project.type": "realtime_collab"})))
         self.assertNotIn("realtime", self.slots(scenario()))
 

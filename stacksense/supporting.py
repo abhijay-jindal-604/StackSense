@@ -639,8 +639,11 @@ def _t_realtime(p, cx) -> Trig:
     t = val(p, "project.type")
     if t in REALTIME_TYPES:
         out.append(("project.type", f"project.type={t}"))
+    # explicit fields win over description signals: requirements.realtime=false given -> no description trigger
+    explicit_off = ("requirements.realtime" in getattr(p, "provided", frozenset())
+                    and val(p, "requirements.realtime") is False)
     for sid in REALTIME_SIGNALS:
-        if sid in cx.sig:
+        if sid in cx.sig and not explicit_off:
             out.append(("project.description", cx.signal_text(sid)))
     if cx.mrt and not out:
         out.append(("requirements.realtime", "the chosen core stack needs a managed realtime service (C2)"))

@@ -27,7 +27,6 @@ CORE = ("frontend", "backend", "database", "hosting")
 
 # id -> one-line reason from the real failing assertion (coordinator re-syncs after concurrent work).
 KNOWN_GAPS: dict[str, str] = {
-    "H12": "missing ONPREM_NO_SAAS warning (status ok)",
     "H14": "backend chose NestJS (Node.js 26 LTS), wanted Laravel",
     "H15": "neither SKILL_MISMATCH nor SKILL_GAP_NO_LEARNING present",
     "H16": "database chose Neon Postgres, wanted TimescaleDB/InfluxDB/ClickHouse",
@@ -35,7 +34,6 @@ KNOWN_GAPS: dict[str, str] = {
     "H28": "backend chose Payload CMS, wanted Shopify",
     "H30": "H30_P1: supporting observability changed vs P1 (locality)",
     "H31": "forbidden 'Amazon' in other choice 'Amazon SES' (cloud_preference=none)",
-    "H36": "supporting layer realtime present although requirements.realtime=false",
 }
 
 
@@ -378,7 +376,8 @@ class HiddenInvariants(unittest.TestCase):
         known = {"id", "files", "intent", "manual", "status", "stack", "required_warnings", "required_warnings_any",
                  "assumption_prefixes", "assumption_mentions_extras", "cost", "forbidden_choices", "style", "style_not",
                  "layers", "layers_present", "layers_absent", "validation_errors", "validate_expect", "exit_code",
-                 "nearest_feasible_mentions", "output_count", "output_statuses", "compare", "per_file", "base_only_files"}
+                 "nearest_feasible_mentions", "output_count", "output_statuses", "compare", "per_file", "base_only_files",
+                 "note"}   # note: documentation only
         for e in EXPECTATIONS:
             self.assertEqual(set(e) - known, set(), f"{e['id']}: expectation keys this suite does not interpret")
 

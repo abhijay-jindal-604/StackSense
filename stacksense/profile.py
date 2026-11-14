@@ -107,6 +107,7 @@ class Profile:
     signals: Signals = ()
     existing: ExistingReport | None = None
     values: Any = field(default=None, compare=False, repr=False)   # read-only view of the validated flat dict
+    provided: frozenset = field(default=frozenset(), compare=False, repr=False)   # paths present in the input
 
     def weight(self, key: str) -> int:
         for k, w in self.weights:
@@ -403,5 +404,5 @@ def derive(v, signals: Signals = (), existing: ExistingReport | None = None) -> 
         self_hosted_only=deployment in ("on_premise", "air_gapped"), air_gapped=deployment == "air_gapped",
         compliance=compliance, consistency=consistency, data_shape=data_shape, money=money,
         weights=weights, india=india, eu=eu, gdpr_eu_preference=gdpr_pref, infeasible=infeasible,
-        assumptions=tuple(asm), warnings=tuple(warns), signals=signals, existing=existing, values=MappingProxyType(dict(p)),
+        assumptions=tuple(asm), warnings=tuple(warns), signals=signals, existing=existing, values=MappingProxyType(dict(p)), provided=frozenset(provided),
     )
