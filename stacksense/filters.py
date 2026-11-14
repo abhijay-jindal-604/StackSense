@@ -337,12 +337,17 @@ def _cloud_bound(rec, layer, p) -> bool:
     return layer == "backend" and bool(rec.get("saas")) and not self_hosted_mode(rec, p)
 
 
+def _an(word: str) -> str:
+    """'an AWS', 'an Azure', 'a Google Cloud' (article by the sound of the first letter)."""
+    return ("an " if word[:1].upper() in "AEIOU" else "a ") + word
+
+
 def _f3b(rec, p, layer, ctx):
     if p.cloud_preference != "none":
         return None
     if _is_offering(rec):
         if rec["host"] in HYPERSCALERS:
-            return _rej(rec, layer, "F3b", (F_CLOUD,), f"{rec['name']} needs a {CLOUD_NAMES[rec['host']]} "
+            return _rej(rec, layer, "F3b", (F_CLOUD,), f"{rec['name']} needs {_an(CLOUD_NAMES[rec['host']])} "
                         f"account; cloud_preference=none.", rec.get("sources", ()), cloud=rec["host"])
         return None
     if layer.startswith("frontend"):
@@ -350,7 +355,7 @@ def _f3b(rec, p, layer, ctx):
     aff = [c for c in (rec.get("cloud_affinity") or [])]
     if aff and all(c in HYPERSCALERS for c in aff):
         clouds = " or ".join(CLOUD_NAMES[c] for c in aff)
-        return _rej(rec, layer, "F3b", (F_CLOUD,), f"{rec.get('name', rec['id'])} needs a {clouds} account; "
+        return _rej(rec, layer, "F3b", (F_CLOUD,), f"{rec.get('name', rec['id'])} needs {_an(clouds)} account; "
                     f"cloud_preference=none.", rec.get("sources", ()), cloud=",".join(aff))
     return None
 

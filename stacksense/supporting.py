@@ -1250,7 +1250,7 @@ def _gap(slot: Slot, trig, p, rejected, incompatible) -> SupportingGap:
         code = "SUPPORTING_GAP"
     severity = "critical" if code != "SUPPORTING_GAP" else slot.severity
     need = slot.id.replace("other.", "").replace("_", " ")
-    msg = (f"A {need} service is needed ({why}) but no candidate satisfies the hard constraints and the chosen stack"
+    msg = (f"{'An' if need[:1].lower() in 'aeiou' else 'A'} {need} service is needed ({why}) but no candidate satisfies the hard constraints and the chosen stack"
            + (": " + " ".join(reasons) if reasons else ".")
            + (f" It is left out; {slot.workaround}." if slot.workaround else " It is left out."))
     return SupportingGap(slot=slot.id, layer=slot.layer, triggers=tuple(trig), code=code, severity=severity,
