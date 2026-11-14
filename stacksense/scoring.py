@@ -19,6 +19,7 @@ Pure and deterministic: no clock, no randomness, sets always sorted.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -63,7 +64,9 @@ W: dict[str, Any] = {
     "budget_share": {"hosting": 0.40, "database": 0.25, "supporting": 0.35,
                      "backend": 0.40, "frontend": 0.25},
     "budget_free_ok": 3, "budget_free_noncommercial": -1.5, "budget_none_free": -8,
-    "budget_over_factor": -3, "budget_over_cap": 2, "budget_exceeds_total": -8,
+    # B > 0 (smooth, continuous in budget and cost): -slope per doubling of mid over the layer share,
+    # a further -slope per doubling of min over the whole budget, floored at budget_fit_min
+    "budget_over_slope": 3, "budget_whole_slope": 3, "budget_fit_min": -8,
     # 6 requirement_fit (table REQUIREMENT_RULES below)
     "req_native": 2, "req_workable": 0, "req_poor": -3, "req_min": -12, "req_max": 10,
     # 7 type_affinity
@@ -190,7 +193,38 @@ class LayerContext:
             return shares["supporting"] / max(1, self.supporting_layers)
         if self.layer in FRONTEND_LAYERS:
             return shares["frontend"]
+        bundle = bundle_share(tech["id"]) if tech else None
+        if bundle is not None:
+            return bundle
         return shares.get(self.layer, shares["supporting"])
+
+
+_BUNDLE_SHARES: dict[str, float] = {}
+
+
+def bundle_share(record_id: str) -> float | None:
+    """Budget share of a product billed as one plan across core layers (``cost.BUNDLED_BILLS``, e.g. a
+    Supabase project is backend + database + host): the sum of the shares of the layers it spans, so
+    one plan price is compared with the budget it actually covers. None for other records."""
+    if not _BUNDLE_SHARES:
+        from . import kb
+        from .cost import BUNDLED_BILLS   # cost imports scoring: resolved lazily
+        shares = W["budget_share"]
+        for members, _why in BUNDLED_BILLS:
+            layers = set()
+            for mid in members:
+                rec = kb.get(mid)
+                layer = rec.get("layer") if rec else None
+                if layer is None and any(o["id"] == mid for o in kb.OFFERINGS):
+                    layer = "database"
+                if layer in shares:
+                    layers.add(layer)
+            total = round(sum(shares[x] for x in sorted(layers)), 4)
+            for mid in members:
+                _BUNDLE_SHARES[mid] = total
+        _BUNDLE_SHARES.setdefault("", 0.0)
+    v = _BUNDLE_SHARES.get(record_id)
+    return v if v else None
 
 
 # ------------------------------------------------------------------ helpers
@@ -432,33 +466,44 @@ def _budget(tech, p, ctx):
     lo, hi, _derived = band
     if ctx.layer in CODE_LAYERS and lo == 0 and hi == 0:
         return None  # frameworks and toolkits cost nothing themselves
-    budget = val(p, "budget.monthly_infra_usd", 0) or 0
     fields = ("budget.monthly_infra_usd",) + _size_fields(p)
+    got = budget_fit_value(tech["name"], lo, hi, tech.get("free_tier") or {}, ctx.share(tech), p)
+    if got is None:
+        return None
+    return got[0], fields, got[1]
+
+
+def budget_fit_value(name: str, lo: float, hi: float, free_tier: dict, share_frac: float, p
+                     ) -> tuple[float, str] | None:
+    """budget_fit for a priced item with band ``lo``-``hi`` and budget share ``share_frac`` (also used
+    by ``combine.py`` for items billed once across layers). Smooth in budget and cost for budget > 0:
+    ``-(slope x log2(mid / share) + slope x log2(min / budget) when min > budget)``, floored."""
+    budget = val(p, "budget.monthly_infra_usd", 0) or 0
     btxt = f"budget.monthly_infra_usd={fmt(budget)}"
     if budget == 0:
-        ft = tech.get("free_tier") or {}
+        ft = free_tier or {}
         if lo == 0:
             if ft and ft.get("commercial_use") is False:
-                return (W["budget_free_noncommercial"], fields,
-                        f"{btxt}: {tech['name']} is free at size {p.size}, but its free tier excludes commercial use.")
-            return (W["budget_free_ok"], fields,
-                    f"{btxt}: {tech['name']} costs USD 0 at size {p.size}"
+                return (W["budget_free_noncommercial"],
+                        f"{btxt}: {name} is free at size {p.size}, but its free tier excludes commercial use.")
+            return (W["budget_free_ok"], f"{btxt}: {name} costs USD 0 at size {p.size}"
                     + (f" (free tier: {ft.get('limit')})." if ft.get("limit") else "."))
-        return (W["budget_none_free"], fields,
-                f"{btxt}, but {tech['name']} costs at least USD {_num(lo)}/month at size {p.size} and has no free option.")
-    if lo > budget:
-        return (W["budget_exceeds_total"], fields,
-                f"{tech['name']} costs at least USD {_num(lo)}/month at size {p.size}, above the whole {btxt}.")
-    share = budget * ctx.share(tech)
+        return (W["budget_none_free"],
+                f"{btxt}, but {name} costs at least USD {_num(lo)}/month at size {p.size} and has no free option.")
+    share = budget * share_frac
     mid = (lo + hi) / 2
-    if share <= 0:
+    if share <= 0 or mid <= share:
         return None
-    over = max(0.0, mid / share - 1)
-    if over <= 0:
+    over = W["budget_over_slope"] * math.log2(mid / share)
+    whole = W["budget_whole_slope"] * math.log2(lo / budget) if lo > budget else 0.0
+    v = round(max(W["budget_fit_min"], -(over + whole)), 2)
+    if not v:
         return None
-    v = W["budget_over_factor"] * min(W["budget_over_cap"], over)
-    return v, fields, (f"{tech['name']} costs about USD {_num(mid)}/month (USD {_num(lo)}-{_num(hi)}) at size {p.size}, "
-                       f"above this layer's share USD {_num(share)} of {btxt}.")
+    text = (f"{name} costs about USD {_num(mid)}/month (USD {_num(lo)}-{_num(hi)}) at size {p.size}, "
+            f"{_num(round(mid / share, 1))}x this layer's share USD {_num(share)} of {btxt}")
+    if whole:
+        text += "; its minimum alone is above the whole budget"
+    return v, text + "."
 
 
 # ------------------------------------------------------------------ 6 requirement_fit (plan 5.3.1)

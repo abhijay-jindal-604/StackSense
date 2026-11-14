@@ -14,13 +14,17 @@ Search
    else ``frontend_mobile``, else ``frontend_desktop``, else nothing (API only). The slot holds the
    client that is scored inside the combination (plan 5.4: "the mobile/desktop/game choice is scored in
    its place" when there is no web client).
-2. Enumerate the top ``K`` (``T["K"]`` = 6) of primary-client x backend x database x hosting and drop
+2. Enumerate the top ``K`` (``T["K"]`` = 6) of primary-client x backend x database x hosting (the
+   backend list also keeps the top ``T["K_budget_neutral"]`` ranked without ``budget_fit``, see
+   :func:`shortlist`) and drop
    every combination that breaks a hard compatibility rule (C1-C8 below); the reason is kept in
    ``rejected_pairs``. When nothing passes, ``K`` widens to the full lists; when still nothing passes,
    ``ComboResult.infeasible_pair`` names the layer pair that blocked the most combinations and the
    caller marks the result ``infeasible``.
-3. ``combo_score = sum of the four layer scores + synergies + language penalty`` with
-   ``language penalty = -0.75 * (distinct_languages - 1) * (1 if team.size <= 5 else 0.3)``.
+3. ``combo_score = sum of the four layer scores + synergies + language penalty + priced_once`` with
+   ``language penalty = -0.75 * (distinct_languages - 1) * (1 if team.size <= 5 else 0.3)``;
+   ``priced_once`` re-prices the database as its resolved offering and a plan billed once across
+   layers (``cost.BUNDLED_BILLS``) as one item (:func:`priced_once_term`).
 4. Total order (tested): higher ``combo_score`` (4 decimals) -> fewer distinct languages -> lower cost
    midpoint (``cost.estimate``) -> lower total ``ops_burden`` -> lexicographic tuple of candidate ids.
 5. The remaining client layers (mobile, desktop; web when a game engine is primary) are picked after the
@@ -28,18 +32,25 @@ Search
    ``one_codebase`` and ``web_reuse`` terms. Two single-platform native toolkits are joined when both
    ``android`` and ``ios`` are required and a native toolkit wins.
 
+6. Budget fallback of plan 7 (:func:`apply_budget`, called by the engine with a full cost function):
+   ``ComboResult.pool`` holds the top ``T["budget_fallback_top_n"]`` (50) combinations.
+
 Hard compatibility rules (combination dropped; reason quotes the ids and inputs)
 --------------------------------------------------------------------------------
 C1 runtime on host     backend runtime must be listed by the host; a functions product
                        (``serverless_fn`` back end) runs only on a functions-capable host of its own
-                       provider.
+                       provider; a framework back end (a long-running server) never runs on a
+                       ``static_host`` (Vercel, Netlify, Amplify, ...) unless it lives inside the
+                       frontend app (cap ``same_app_as_frontend``: Next.js route handlers, Payload).
 C2 long-lived conns    realtime needs a host with ``long_lived_conn`` (or a BaaS with built-in
                        realtime); a functions-only host is kept only when a managed realtime service
                        passes the hard filters, and the combination carries the flag
                        ``needs_managed_realtime`` (``supporting.py`` must honour it).
 C3 database on host    ``offerings.resolve`` must find an offering (region, attestation, provider).
 C4 frontend host       a web client needs a host that serves it (static files, or its SSR runtime);
-                       backend ``None`` is allowed only when ``needs_backend`` is false.
+                       backend ``None`` is allowed only when ``needs_backend`` is false; database
+                       ``None`` only when ``needs_database`` is false or the backend stores its own data
+                       (BaaS, commerce SaaS: :data:`SELF_STORING_BACKEND_KINDS`).
 C5 BaaS coupling       :data:`BAAS_COUPLING` (Supabase, Firebase, PocketBase, Appwrite, Shopify).
 C6 frontend-backend    :data:`FRONTEND_NEEDS_BACKEND` / :data:`BACKEND_NEEDS_FRONTEND`.
 C7 pooler              functions hosts with PostgreSQL/MySQL need a pooler in the offering.
@@ -58,11 +69,13 @@ from typing import Any, Iterable, Mapping, NamedTuple
 
 from . import cost as _cost
 from . import filters, offerings, scoring
+from .kb import costs as _costs_kb
 from .scoring import Contribution, Scored
 
 # ------------------------------------------------------------------ constants (one table)
 T: dict[str, Any] = {
     "K": 6,                                   # top-K per layer before widening
+    "K_budget_neutral": 6,                    # backend: also the top 6 without budget_fit (shortlist)
     "runners_up": 5,
     # language-count penalty: -0.75 * (distinct - 1) * (1 if team.size <= 5 else 0.3)
     "lang_penalty": 0.75, "lang_penalty_full_max_team": 5, "lang_penalty_large_team_factor": 0.3,
@@ -81,6 +94,7 @@ T: dict[str, Any] = {
         "bff_split": -1.0,                # SSR frontend + backend in another language (team.size <= 3)
         "managed_realtime": -1.0,         # functions-only host: realtime must be a managed service
     },
+    # priced_once (not capped by synergy_cap): see priced_once_term
     "synergy_cap": 2.0,
     "shared_language_max_team": 5,
     "bff_split_max_team": 3,
@@ -89,6 +103,10 @@ T: dict[str, Any] = {
     "one_codebase": 2.5, "one_codebase_max_team": 6,
     "two_natives": -2.0, "two_natives_max_team": 3,
     "web_reuse": 1.0,
+    # plan 7 budget fallback (values shared with kb.costs)
+    "budget_fallback_top_n": _costs_kb.BUDGET_FALLBACK_TOP_N,
+    "budget_fallback_accept_ratio": _costs_kb.BUDGET_FALLBACK_ACCEPT_RATIO,
+    "budget_cheapest_core": 10,       # cheapest mode: also price the 10 passed combinations cheapest at core
 }
 
 FRAMEWORK_HOST_PAIRS = {("nextjs", "vercel")}
@@ -126,7 +144,14 @@ BAAS_COUPLING: dict[str, dict] = {
                 "why": "Shopify is hosted by Shopify and manages its own data"},
 }
 FUNCTION_HOST_KINDS = ("serverless_fn", "static_host")
+# C1: backend kinds that run as a long-lived server process (not on a static/edge host's functions)
+SERVER_BACKEND_KINDS = ("framework",)
+# C4: backend kinds that keep the application data themselves (database None is their own store)
+SELF_STORING_BACKEND_KINDS = ("baas", "commerce_saas")
 SERVER_HOST_KINDS = ("container", "k8s", "paas", "vm", "onprem", "hybrid_appliance")
+# runtimes that do not run a general web server process (a host listing only these cannot serve a
+# static web build from the application server: Supabase Cloud, Shopify)
+NON_SERVER_RUNTIMES = frozenset({"baas", "saas", "edge_js", "static"})
 REALTIME_TYPES = ("realtime_collab",)
 CLIENT_LAYERS = ("frontend_web", "frontend_game", "frontend_mobile", "frontend_desktop")
 MOBILE_PLATFORMS = ("android", "ios")
@@ -280,6 +305,9 @@ class ComboResult:
     infeasible_reason: str | None = None
     considered: int = 0                        # combinations enumerated
     passed: int = 0                            # combinations that passed every hard rule
+    pool: tuple = ()                           # top BUDGET_FALLBACK_TOP_N combinations, best first
+    passed_all: tuple = ()                     # every combination that passed, in rank order
+    budget: "BudgetChoice | None" = None       # set by :func:`apply_budget` (plan 7 budget fallback)
 
     @property
     def feasible(self) -> bool:
@@ -292,7 +320,34 @@ class ComboResult:
                 "widened": self.widened,
                 "infeasible_pair": list(self.infeasible_pair) if self.infeasible_pair else None,
                 "infeasible_reason": self.infeasible_reason, "considered": self.considered,
-                "passed": self.passed}
+                "passed": self.passed, "budget": self.budget.to_dict() if self.budget else None}
+
+
+@dataclass(frozen=True)
+class BudgetChoice:
+    """Outcome of the plan 7 budget fallback.
+
+    mode: ``fits`` (the best combination's cost.min is within the budget, or there is no budget),
+    ``fallback`` (a lower-scoring combination with cost.min <= budget and combo_score >= ratio x best
+    replaced it), ``cheapest`` (nothing in the pool fits: the cheapest feasible combination is kept).
+    ``displaced``: the higher-scoring combination that was set aside (``None`` for ``fits``)."""
+    mode: str
+    combo: Combo
+    cost: Any
+    displaced: Combo | None = None
+    displaced_cost: Any = None
+    budget: float | None = None
+    floor: float | None = None                 # lowest combo_score the fallback accepts
+    examined: int = 0
+
+    def to_dict(self) -> dict:
+        return {"mode": self.mode, "chosen": list(self.combo.ids), "chosen_score": round(self.combo.score, 2),
+                "chosen_cost": [self.cost.min, self.cost.max],
+                "displaced": list(self.displaced.ids) if self.displaced else None,
+                "displaced_score": round(self.displaced.score, 2) if self.displaced else None,
+                "displaced_cost": ([self.displaced_cost.min, self.displaced_cost.max]
+                                   if self.displaced_cost is not None else None),
+                "budget": self.budget, "accept_floor": self.floor, "examined": self.examined}
 
 
 # ------------------------------------------------------------------ small helpers
@@ -447,6 +502,10 @@ def check_backend_database(be: Scored, db: Scored, p) -> tuple[str, str] | None:
     if _kind(be) == "none" and _kind(db) != "none":
         return _rej("C4", f"backend None cannot reach a database ({_name(db)}); a static site has no "
                           f"server to query it.")
+    if (_kind(db) == "none" and getattr(p, "needs_database", False)
+            and _kind(be) not in SELF_STORING_BACKEND_KINDS):
+        return _rej("C4", f"database None leaves {_name(be)} nowhere to store the data this project keeps "
+                          f"({scoring._dynamic_text(p)}).")
     c = BAAS_COUPLING.get(bid)
     if c and dbid not in c["databases"]:
         allowed = ", ".join(c["databases"])
@@ -501,6 +560,11 @@ def check_backend_host(be: Scored, host: Scored, p, cache: dict) -> tuple[tuple[
         rt = b.get("runtime")
         if rt and rt not in hrt and not filters._runs_on(b, h):
             return _rej("C1", f"{hname} runs {', '.join(hrt) or 'nothing'}; {bname} needs {rt}."), ()
+        if (bkind in SERVER_BACKEND_KINDS and hkind in STATIC_HOST_KINDS
+                and "same_app_as_frontend" not in _caps(b)):
+            return _rej("C1", f"{hname} is a static/edge host whose {rt} support runs only short request "
+                              f"functions and front-end server rendering; {bname} is a long-running "
+                              f"{rt} server that needs a container, PaaS or VM host."), ()
         if bkind == "serverless_fn":
             bfam, hfam = offerings.provider_family(b), offerings.provider_family(h)
             fn_host = hkind in FUNCTION_HOST_KINDS or "scale_to_zero" in _caps(h)
@@ -586,11 +650,11 @@ def choose_frontend_host(fe: ClientPart | None, be: Scored, host: Scored, hosts:
         dedicated = 0 if (mode != "static" or s.tech.get("kind") in STATIC_HOST_KINDS) else 1
         return (dedicated, -round(s.total + _fe_host_synergy(f, s.tech), 4), s.tech["id"])
 
+    app_server = h.get("kind") in SERVER_HOST_KINDS and bool(set(_runtimes(h)) - NON_SERVER_RUNTIMES)
     same = sorted((s for s in cands if offerings.provider_family(s.tech) == hfam), key=key)
-    if same and (mode != "static" or same[0].tech.get("kind") in STATIC_HOST_KINDS
-                 or h.get("kind") not in SERVER_HOST_KINDS):
+    if same and (mode != "static" or same[0].tech.get("kind") in STATIC_HOST_KINDS or not app_server):
         return same[0], None
-    if mode == "static" and h.get("kind") in SERVER_HOST_KINDS:
+    if mode == "static" and app_server:
         return host, None          # the application server serves the built assets
     if cands:
         return sorted(cands, key=key)[0], None
@@ -704,6 +768,74 @@ def synergies(fe: ClientPart | None, be: Scored, db: Scored, host: Scored, fe_ho
                         f"{h['name']} runs request-only functions, so requirements.realtime=true needs a "
                         f"separate managed realtime service"))
     return out
+
+
+def _budget_fit(s: Scored | None) -> float:
+    if s is None:
+        return 0.0
+    return sum(c.value for c in s.contributions if c.key == "budget_fit")
+
+
+def _band(rec: dict | None, size: str):
+    if not rec or rec.get("kind") == "none":
+        return None
+    return _costs_kb.band_for(dict(rec.get("cost") or {}), size)
+
+
+def priced_once_term(be: Scored, db: Scored, host: Scored, res, p) -> Contribution | None:
+    """``priced_once``: the layer budget fits price the backend, the database *engine* and the host
+    separately. Inside a combination the database is the resolved offering, and products billed as one
+    plan (``cost.BUNDLED_BILLS``: a Supabase project is backend + database + host) are one bill. This
+    term re-prices those items once with the same curve (``scoring.budget_fit_value``; a bundle gets the
+    sum of its layers' budget shares) and returns the difference to the layer terms it replaces.
+    None when nothing is re-priced or the difference rounds to 0."""
+    size = p.size
+    off = getattr(res, "offering", None)
+    slots = [("backend", be.tech, be), ("database", off if off and off.get("cost") else db.tech, db),
+             ("hosting", host.tech, host)]
+    ids = {slot: rec["id"] for slot, rec, _ in slots}
+    groups: list[tuple[list[str], str | None]] = []
+    used: set[str] = set()
+    for members, why in _cost.BUNDLED_BILLS:
+        got = [slot for slot, _, _ in slots if ids[slot] in members and slot not in used]
+        if len(got) > 1:
+            groups.append((got, why))
+            used.update(got)
+    for slot, _, _ in slots:
+        if slot not in used:
+            groups.append(([slot], None))
+    rec_of = {slot: rec for slot, rec, _ in slots}
+    sc_of = {slot: s for slot, _, s in slots}
+    old = round(sum(_budget_fit(sc_of[x]) for g, _ in groups for x in g), 2)
+    new, notes = 0.0, []
+    changed = False
+    for g, why in groups:
+        if len(g) == 1 and not (g[0] == "database" and rec_of["database"] is not db.tech):
+            new += _budget_fit(sc_of[g[0]])
+            continue
+        bands = [b for b in (_band(rec_of[x], size) for x in g) if b is not None]
+        if not bands:
+            new += sum(_budget_fit(sc_of[x]) for x in g)
+            continue
+        changed = True
+        lo, hi = max(b[0] for b in bands), max(b[1] for b in bands)
+        share = (scoring.bundle_share(rec_of[g[0]]["id"]) or sum(scoring.context(x).share() for x in g)
+                 if len(g) > 1 else scoring.W["budget_share"]["database"])
+        name = " + ".join(rec_of[x]["name"] for x in g)
+        got = scoring.budget_fit_value(name, lo, hi, rec_of[g[0]].get("free_tier") or {}, share, p)
+        new += got[0] if got else 0.0
+        if len(g) > 1:
+            notes.append(f"{why} (USD {scoring.fmt(lo)}-{scoring.fmt(hi)}, budget fit "
+                         f"{scoring.fmt(got[0] if got else 0)} on the {'+'.join(g)} share)")
+        else:
+            notes.append(f"the database is priced as {rec_of['database']['name']} (USD {scoring.fmt(lo)}-"
+                         f"{scoring.fmt(hi)}, budget fit {scoring.fmt(got[0] if got else 0)}) rather than the "
+                         f"generic {db.tech['name']} band")
+    v = round(new - old, 2)
+    if not changed or not v:
+        return None
+    return _contrib("priced_once", v, ("budget.monthly_infra_usd",),
+                    "; ".join(notes) + f"; this replaces layer budget fits totalling {scoring.fmt(old)}")
 
 
 # ------------------------------------------------------------------ client picks after the core
@@ -827,6 +959,9 @@ def _evaluate(fe, be, db, host, hosts, p, cache) -> tuple[Combo | None, tuple | 
     pen = language_penalty(langs, p)
     if pen is not None:
         syn.append(pen)
+    po = priced_once_term(be, db, host, res, p)
+    if po is not None:
+        syn.append(po)
     layer_total = round((fe.scored.total if fe else 0.0) + be.total + db.total + host.total, 2)
     score = round(layer_total + sum(c.value for c in syn), 2)
     combo = Combo(fe, be, db, host, fe_host, res, tuple(syn), langs, layer_total, score,
@@ -850,6 +985,20 @@ def _sort(combos: list[Combo], p) -> list[Combo]:
             grp.sort(key=_order_key)
         out.extend(grp)
     return out
+
+
+def shortlist(ranked_layer: list[Scored], n: int) -> list[Scored]:
+    """Top ``n`` by layer score plus the top ``T['K_budget_neutral']`` by layer score without
+    ``budget_fit`` (rank order kept). A framework back end costs nothing itself while a BaaS back end's
+    band is its whole platform plan, so at a low budget the layer budget term alone would drop every
+    BaaS before the combination (where its plan is priced once, see :func:`priced_once_term`) is seen."""
+    top = list(ranked_layer[:n])
+    extra = T["K_budget_neutral"]
+    if extra <= 0 or len(ranked_layer) <= n:
+        return top
+    neutral = sorted(ranked_layer, key=lambda s: (-round(s.total - _budget_fit(s), 4), s.tech["id"]))
+    keep = {id(s) for s in top} | {id(s) for s in neutral[:extra]}
+    return [s for s in ranked_layer if id(s) in keep]
 
 
 def _enumerate(lists, hosts_all, p, cache, stats, rejected, blocked):
@@ -899,7 +1048,7 @@ def search(ranked: Mapping[str, list[Scored]], p, *, k: int | None = None) -> Co
     hosts_all = hos
 
     def lists_for(n):
-        return ([None] if primary is None else fe_all[:n]), bes[:n], dbs[:n], hos[:n]
+        return ([None] if primary is None else fe_all[:n]), shortlist(bes, n), dbs[:n], hos[:n]
 
     passed = _enumerate(lists_for(k), hosts_all, p, cache, stats, rejected, blocked)
     widened = False
@@ -923,10 +1072,88 @@ def search(ranked: Mapping[str, list[Scored]], p, *, k: int | None = None) -> Co
     top = ordered[: 1 + T["runners_up"]]
     top = [c if c.cost_mid is not None else replace(c, cost_mid=_cost_mid(c, p)) for c in top]
     top = [pick_clients(c, ranked, p) for c in top]
-    return ComboResult(top[0], top[1:], rej_list, used_k, widened, None, None, stats["considered"], len(passed))
+    pool = tuple(top + ordered[len(top): T["budget_fallback_top_n"]])
+    return ComboResult(top[0], top[1:], rej_list, used_k, widened, None, None, stats["considered"], len(passed),
+                       pool, tuple(top + ordered[len(top):]))
 
 
-__all__ = ["T", "BAAS_COUPLING", "PairRejection", "ClientPart", "Combo", "ComboResult", "search",
+# ------------------------------------------------------------------ budget fallback (plan 7)
+def _budget_of(p) -> float | None:
+    b = scoring.val(p, "budget.monthly_infra_usd")
+    if isinstance(b, bool) or not isinstance(b, (int, float)):
+        return None
+    return float(b)
+
+
+def _core_min(combo: Combo, p) -> int:
+    return _cost.estimate(p, combo.stack()).min
+
+
+def accept_floor(best_score: float) -> float:
+    """Lowest combo_score the fallback accepts: ``ratio x best`` (for a negative best, the same
+    distance below it)."""
+    r = T["budget_fallback_accept_ratio"]
+    return round(best_score - (1 - r) * abs(best_score), 4)
+
+
+def apply_budget(result: ComboResult, ranked: Mapping[str, list], p, cost_of) -> ComboResult:
+    """Plan 7 budget fallback over ``result.pool``.
+
+    ``cost_of(combo) -> Cost`` prices a whole stack (the engine passes core + supporting lines through
+    ``cost.estimate``). When the best combination's ``cost.min`` exceeds the budget, the highest-scoring
+    pool combination with ``cost.min <= budget`` and ``combo_score >= accept_floor(best)`` replaces it;
+    when none exists, the cheapest feasible combination (lowest cost.min, then the better rank) is kept:
+    the pool plus the ``T['budget_cheapest_core']`` passed combinations with the lowest core estimate.
+    The displaced combination becomes the first runner-up so explanations can cite it. Pure: the same
+    pool and costs always give the same choice."""
+    if not result.feasible:
+        return result
+    best = result.best
+    best_cost = cost_of(best)
+    budget = _budget_of(p)
+    if budget is None or best_cost.min <= budget:
+        return replace(result, budget=BudgetChoice("fits", best, best_cost, budget=budget, examined=1))
+    floor = accept_floor(best.score)
+    priced: list[tuple[Combo, Any]] = [(best, best_cost)]
+    chosen = None
+    for combo in result.pool[1:]:
+        combo = combo if combo.clients else pick_clients(combo, ranked, p)
+        c = cost_of(combo)
+        priced.append((combo, c))
+        if chosen is None and c.min <= budget and round(combo.score, 4) >= floor:
+            chosen = (combo, c)
+            break
+    mode = "fallback"
+    if chosen is None:
+        for combo in result.pool[len(priced):]:
+            combo = combo if combo.clients else pick_clients(combo, ranked, p)
+            priced.append((combo, cost_of(combo)))
+        # "cheapest feasible": also every passed combination outside the pool whose core estimate is
+        # among the T['budget_cheapest_core'] lowest (priced in full only for those)
+        in_pool = {c.ids for c, _ in priced}
+        rank = {c.ids: i for i, c in enumerate(result.passed_all or result.pool)}
+        outside = [c for c in (result.passed_all or ()) if c.ids not in in_pool]
+        outside.sort(key=lambda c: (_core_min(c, p), rank[c.ids]))
+        for combo in outside[: T["budget_cheapest_core"]]:
+            combo = combo if combo.clients else pick_clients(combo, ranked, p)
+            priced.append((combo, cost_of(combo)))
+        idx = min(range(len(priced)), key=lambda i: (priced[i][1].min, rank.get(priced[i][0].ids, i)))
+        chosen = priced[idx]
+        mode = "cheapest"
+    combo, c = chosen
+    if combo is best:
+        return replace(result, budget=BudgetChoice("cheapest", best, best_cost, budget=budget, floor=floor,
+                                                   examined=len(priced)))
+    if combo.cost_mid is None:
+        combo = replace(combo, cost_mid=_cost_mid(combo, p))
+    rest = [x for x in ([best] + list(result.runners_up)) if x.ids != combo.ids]
+    rest = [x if x.cost_mid is not None else replace(x, cost_mid=_cost_mid(x, p)) for x in rest]
+    choice = BudgetChoice(mode, combo, c, best, best_cost, budget, floor, len(priced))
+    return replace(result, best=combo, runners_up=rest[: T["runners_up"]], budget=choice)
+
+
+__all__ = ["T", "BAAS_COUPLING", "PairRejection", "ClientPart", "Combo", "ComboResult", "BudgetChoice",
+           "search", "apply_budget", "accept_floor",
            "check_frontend_backend", "check_backend_database", "check_backend_host", "choose_frontend_host",
            "resolve_database", "synergies", "language_penalty", "choose_languages", "client_terms",
            "pick_clients"]

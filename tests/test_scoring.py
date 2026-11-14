@@ -239,9 +239,20 @@ class OpsScaleBudget(unittest.TestCase):
         band = lambda lo, hi: rec(layer="hosting", kind="paas", cost={"s": (lo, hi)})
         self.assertEqual(value(band(10, 50), p, "budget_fit"), 0)            # mid 30 <= 40
         self.assertEqual(value(band(60, 100), p, "budget_fit"), -3)          # mid 80 = 2x share
-        self.assertEqual(value(band(90, 400), p, "budget_fit"), -6)          # capped at 2
-        self.assertEqual(value(band(101, 120), p, "budget_fit"), -8)         # min above whole budget
+        self.assertEqual(value(band(90, 400), p, "budget_fit"), -7.84)       # -3 x log2(245 / 40)
+        self.assertEqual(value(band(200, 2000), p, "budget_fit"), -8)        # floor W["budget_fit_min"]
+        # smooth: crossing min = budget adds a term that starts at 0 (no step), then -3 per doubling
+        below, above = value(band(99, 120), p, "budget_fit"), value(band(101, 120), p, "budget_fit")
+        self.assertLess(abs(below - above), 0.2)
+        self.assertLess(value(band(150, 170), p, "budget_fit"), above)
+        # cost differences stay visible at low budgets (the old -6 cap made every pricier option equal)
+        lowp = P(budget__monthly_infra_usd=20)
+        self.assertLess(value(band(60, 100), lowp, "budget_fit"), value(band(20, 40), lowp, "budget_fit"))
         self.assertEqual(value(rec(), p, "budget_fit"), 0)                   # free framework: no term
+        # a product billed as one plan across layers is compared with the shares of every layer it covers
+        self.assertEqual(scoring.bundle_share("supabase"), 1.05)
+        self.assertEqual(scoring.bundle_share("supabase_cloud"), 1.05)
+        self.assertIsNone(scoring.bundle_share("nestjs"))
         # supporting layers share 0.35 across the triggered layers
         sup = band(10, 20)
         self.assertEqual(value(sup, p, "budget_fit", layer="auth", supporting_layers=1), 0)

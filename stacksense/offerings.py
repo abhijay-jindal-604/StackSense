@@ -292,6 +292,15 @@ def _display(name: str, parts) -> str:
     return f"{name} ({', '.join(parts)})"
 
 
+def _self_display(off, engine_name: str, where: str, region: str | None) -> str:
+    """Display for a self-managed / in-host database: the self-managed offering's product name (it
+    names the engine and version), else 'Self-managed <engine>', with where it runs and the region,
+    e.g. 'Self-managed PostgreSQL 17 (on Amazon EC2 / Lightsail, ap-south-1)'."""
+    name = (off or {}).get("name") or f"Self-managed {engine_name}"
+    return _display(name, (where, region if region and region != where.replace("on ", "", 1)
+                           and region != "on premises" else None))
+
+
 # ------------------------------------------------------------------ resolve
 def resolve(engine, host, p, *, require_family: str | None = None, needs_pooler: bool = False):
     """Resolve the concrete database product and region for ``engine`` used from ``host``."""
@@ -327,7 +336,7 @@ def resolve(engine, host, p, *, require_family: str | None = None, needs_pooler:
             off = None
         region = host_region(h, p)
         where = "on premises" if p.self_hosted_only else (f"on {hname}" if h else "on your own servers")
-        disp = f"self-managed {where}" + (f", {region}" if region and region != "on premises" else "")
+        disp = _self_display(off, name, where, region)
         reasons = (f"deployment_model={p.deployment}: {name} runs self-managed {where}, so residency and "
                    f"compliance follow the environment the team operates.",)
         return Resolved(eid, off, "self_managed", "self_hosted", region, None, disp, True, reasons,
@@ -356,7 +365,7 @@ def resolve(engine, host, p, *, require_family: str | None = None, needs_pooler:
                               f"without one.", ())
         off = next((o for o in all_offs if o["host"] == "self_hosted"), None)
         region = host_region(h, p)
-        disp = f"self-managed on {hname}" + (f", {region}" if region and region != "on premises" else "")
+        disp = _self_display(off, name, f"on {hname}", region)
         return Resolved(eid, off, "in_host", provider_family(h) if h else None, region, None, disp, True,
                         (f"{name} has no managed offering; it runs on {hname}, whose own region and "
                          f"attestations satisfy the hard constraints.",),

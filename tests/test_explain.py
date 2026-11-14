@@ -147,5 +147,94 @@ class HostBundledFilterTests(unittest.TestCase):
         self.assertFalse(filters.host_bundled(kb.get("vercel"), "hosting"))
 
 
+# ------------------------------------------------------------------ Phase 2 review fixes
+def run(sid: str, **paths) -> dict:
+    raw = load(PUBLIC / f"{sid}.json")
+    for path, value in paths.items():
+        node = raw
+        parts = path.split("__")
+        for k in parts[:-1]:
+            node = node.setdefault(k, {})
+        node[parts[-1]] = value
+    return engine.recommend(raw)
+
+
+class ReviewFixesTest(unittest.TestCase):
+    def test_hard_fields_lead_driven_by(self):
+        # finding 3: residency / compliance / explicit cloud are never cut by the cap of 8
+        cases = [result(sid) for sid in SIDS] + [run("P3", infrastructure__data_residency="eu"),
+                                                 run("P6", compliance=["dpdp", "iso27001"])]
+        for r in cases:
+            prof_res = r["decision_trace"]["profile"]["effective_residency"]
+            for layer in ("database", "hosting"):
+                comp = r["stack"][layer]
+                self.assertLessEqual(len(comp["driven_by"]), explain.MAX_DRIVEN_BY)
+                if prof_res != "none":
+                    self.assertIn("infrastructure.data_residency", comp["driven_by"], (r["scenario_id"], layer))
+        p6 = run("P6", compliance=["dpdp", "iso27001"])
+        self.assertIn("compliance", p6["stack"]["database"]["driven_by"][:3])
+        self.assertIn("compliance", p6["stack"]["hosting"]["driven_by"][:3])
+
+    def test_self_managed_choice_names_engine(self):
+        # finding 2 + 7: the engine is named and on-premise text reads "runs on premises"
+        for dep in ("on_premise", "air_gapped", "self_hosted_cloud_vm"):
+            r = run("P6", infrastructure__deployment_model=dep)
+            self.assertIsNotNone(r["stack"], dep)
+            db = r["stack"]["database"]
+            name = kb.get(db["kb_id"])["name"]
+            self.assertTrue(db["choice"].startswith("Self-managed "), db["choice"])
+            self.assertIn(name.split(" ")[0], db["choice"])
+            for layer in CORE:
+                self.assertNotIn("runs in on premises", r["stack"][layer]["justification"], (dep, layer))
+
+    def test_combo_level_why_not_cites_combination_terms(self):
+        # finding 4: an alternative that wins on its own layer score is explained by the full stack
+        pat = re.compile(r"scores [\d.-]+ on its own .*but the best full stack built around it scores")
+        seen = 0
+        for r in [result(sid) for sid in SIDS]:
+            for layer in CORE:
+                for a in r["stack"][layer]["alternatives"]:
+                    if pat.search(a["why_not"]) and "budget fallback" not in a["why_not"]:
+                        seen += 1
+                        tail = a["why_not"].split(": ", 1)[-1]
+                        self.assertRegex(tail, r"its stack|its best|in its stack", a["why_not"])
+        self.assertGreater(seen, 0)
+
+    def test_none_database_with_baas_backend(self):
+        # finding 1: a BaaS / commerce back end with database None is not called "pre-rendered pages"
+        p = prof(load(PUBLIC / "P2.json"))
+        none_db = Scored(kb.get("none"), 0.0, ())
+        comp = explain.component("database", none_db, [], [], p, backend=Scored(kb.get("shopify"), 1.0, ()))
+        self.assertNotIn("pre-rendered", comp["justification"])
+        self.assertIn("Shopify", comp["justification"])
+        static = explain.component("database", none_db, [], [], p, backend=Scored(kb.get("none_backend"), 0.0, ()))
+        self.assertIn("pre-rendered", static["justification"])
+
+    def test_budget_fallback_assumption(self):
+        # finding 5: the plan 7 trade sentence when a cheaper stack replaces the best one
+        r = run("P5", budget__monthly_infra_usd=100)
+        chose = [a for a in r["assumptions"] if a.startswith("Chose ")]
+        self.assertEqual(len(chose), 1)
+        self.assertIn("to fit USD 100/month", chose[0])
+        self.assertNotEqual(r["budget_verdict"]["verdict"], "exceeded")
+        self.assertIsNotNone(r["decision_trace"]["combinations"])
+
+    def test_no_compatible_stack_names_blocker(self):
+        # finding 8: residency=other is named as the blocking hard filter
+        r = engine.recommend(load(EDGE / "H32_residency_other.json"))
+        w = next(w for w in r["warnings"] if w["code"] == engine.NO_COMBINATION_CODE)
+        self.assertEqual(w["fields"][0], "infrastructure.data_residency")
+        self.assertIn("infrastructure.data_residency=other", w["message"])
+
+    def test_nearest_feasible_pairs(self):
+        # finding 9: no single relaxation works -> pairs of relaxations are reported
+        r = run("P4", infrastructure__data_residency="eu", infrastructure__cloud_preference="azure")
+        self.assertEqual(r["status"], "infeasible")
+        near = r["nearest_feasible"]
+        self.assertTrue(near)
+        self.assertTrue(all(len(n["fields"]) >= 1 and "together with" in n["message"] for n in near))
+        self.assertLessEqual(len(near), engine.NEAREST_PAIR_LIMIT)
+
+
 if __name__ == "__main__":
     unittest.main()

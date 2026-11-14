@@ -8,10 +8,13 @@
    (:func:`derive_with_conflicts`); ``relax:`` effects become ``relaxed_constraints`` and ``RELAXED:``
    assumptions; an ``infeasible`` effect (hard-vs-hard conflict) makes the result infeasible.
 4. Per core layer: KB candidates -> ``filters.filter_layer`` -> ``scoring.rank``.
-5. ``combine.search`` (database offerings are resolved inside the search; read from the Combo).
+5. ``combine.search`` (database offerings are resolved inside the search; read from the Combo), then
+   ``combine.apply_budget``: the plan 7 budget fallback, pricing candidate stacks with
+   ``cost.estimate`` including supporting-service lines (``budget_assumptions`` states the trade).
 6. ``supporting.select``, ``architecture.decide``, ``cost.estimate``, ``conflicts.post_checks``.
 7. Empty core layer, no compatible combination, or a hard-vs-hard conflict -> ``infeasible`` with a
-   critical warning and ``nearest_feasible`` (each hard constraint relaxed in turn; names only).
+   critical warning and ``nearest_feasible`` (each hard constraint relaxed in turn; when none works
+   alone, pairs of relaxations; names only).
 8. ``explain.*``, ``status.decide``, ``output.build``. The LLM is never consulted for the stack.
 
 Pure and deterministic: no clock, no randomness, no environment reads.
@@ -19,6 +22,8 @@ Pure and deterministic: no clock, no randomness, no environment reads.
 from __future__ import annotations
 
 import copy
+import itertools
+from collections import Counter
 from typing import Any
 
 from . import architecture, combine, conflicts, cost, description, existing, explain, filters, kb, output, profile
@@ -38,6 +43,8 @@ LAYER_TEXT = {"frontend_web": "web frontend", "frontend_mobile": "mobile toolkit
               "frontend_desktop": "desktop toolkit", "frontend_game": "game engine", "backend": "back end",
               "database": "database", "hosting": "host"}
 RELAXED_PREFIX = "RELAXED:"
+NEAREST_PAIR_LIMIT = 3
+BLOCKING_FIELDS_MAX = 3
 _KB_VERSION: list[str] = []
 
 
@@ -233,24 +240,50 @@ def nearest_feasible(raw, v, p, *, fill_defaults: bool) -> list[dict]:
     cloud = v.profile.get("infrastructure.cloud_preference")
     if cloud not in (None, "any"):
         trials.append(("infrastructure.cloud_preference", cloud, "any"))
-    out = []
-    for path, old, new in trials:
+    if not isinstance(raw, dict):
+        return []
+
+    def works(changes) -> bool:
         r2 = copy.deepcopy(raw)
-        if not isinstance(r2, dict):
-            continue
-        _set_path(r2, path, new)
+        comp_now = list(comp)
+        for path, old, new in changes:
+            if path == "compliance":
+                comp_now = [c for c in comp_now if c != old]
+                _set_path(r2, path, comp_now)
+            else:
+                _set_path(r2, path, new)
         v2 = validate(r2, fill_defaults=fill_defaults)
         if v2.errors:
-            continue
+            return False
         p2, pre2 = derive_with_conflicts(v2)
-        if not _feasible(p2, pre2):
-            continue
+        return _feasible(p2, pre2)
+
+    def text(t) -> tuple[str, str]:
+        path, old, new = t
         if path == "compliance":
-            msg = f"Dropping '{old}' from compliance makes a stack feasible."
-            out.append({"field": path, "relax": f"remove {old}", "message": msg})
-        else:
-            msg = f"Changing {path} from {fmt(old)} to {fmt(new)} makes a stack feasible."
-            out.append({"field": path, "relax": f"{fmt(old)} -> {fmt(new)}", "message": msg})
+            return f"remove {old}", f"dropping '{old}' from compliance"
+        return f"{fmt(old)} -> {fmt(new)}", f"changing {path} from {fmt(old)} to {fmt(new)}"
+
+    out = []
+    for t in trials:
+        if not works([t]):
+            continue
+        relax, words = text(t)
+        out.append({"field": t[0], "relax": relax, "message": f"{words[0].upper()}{words[1:]} makes a stack feasible."})
+    if out:
+        return out
+    # no single relaxation works: try pairs (plan 3.17 step 7 names only; first PAIR_LIMIT that work)
+    for a, b in itertools.combinations(trials, 2):
+        if a[0] == b[0] == "compliance" and a[1] == b[1]:
+            continue
+        if not works([a, b]):
+            continue
+        (ra, wa), (rb, wb) = text(a), text(b)
+        fields = list(dict.fromkeys([a[0], b[0]]))
+        out.append({"field": " + ".join(fields), "fields": fields, "relax": f"{ra}; {rb}",
+                    "message": f"No single change is enough; {wa} together with {wb} makes a stack feasible."})
+        if len(out) >= NEAREST_PAIR_LIMIT:
+            break
     return out
 
 
@@ -268,15 +301,110 @@ def _infeasible_warning(p, ranked, rejections, result, layer) -> dict:
         return _warning(NO_CANDIDATE_CODE, "critical", msg, rules or ["project.platforms"])
     reason = (result.infeasible_reason if result is not None else None) or "no compatible combination"
     pair = list(result.infeasible_pair or ()) if result is not None else []
+    blockers = blocking_fields(rejections, pair, p)
     msg = f"No combination of the remaining options works together: {reason.rstrip('.')}."
+    if blockers:
+        msg += (" The hard filters that removed the most candidates in those layers: "
+                + ", ".join(f"{f}={fmt(scoring.val(p, f))}" for f in blockers) + ".")
     fields = ["infrastructure.deployment_model", "infrastructure.cloud_preference"]
     if pair and "frontend" in pair[0]:
         fields = ["project.platforms"] + fields
+    fields = list(dict.fromkeys(blockers + fields))
     return _warning(NO_COMBINATION_CODE, "critical", msg, fields)
+
+
+UNRESTRICTIVE_VALUES = ("any", "managed_cloud", "none")
+
+
+def blocking_fields(rejections, pair, p=None) -> list[str]:
+    """Input fields of the filter rejections in the blocked layer pair (plus hosting and backend, whose
+    survivors decide which pairs exist), most frequent first, at most BLOCKING_FIELDS_MAX. Fields at an
+    unrestrictive value (cloud any, managed_cloud, residency none, empty list) are not named."""
+    layers = {"hosting", "backend"}
+    for x in pair or ():
+        if x == "frontend":
+            layers.update(layer for layer in rejections if layer.startswith("frontend"))
+        else:
+            layers.add(x)
+    counts = Counter(f for layer in sorted(layers) for r in (rejections.get(layer) or ()) for f in r.fields)
+
+    def restrictive(f) -> bool:
+        if p is None:
+            return True
+        v = scoring.val(p, f)
+        return not (v is None or v in UNRESTRICTIVE_VALUES or v == [] or v == ())
+    ranked = [f for f, _ in sorted(counts.items(), key=lambda t: (-t[1], t[0])) if restrictive(f)]
+    return ranked[:BLOCKING_FIELDS_MAX]
 
 
 def explain_layer(layer: str) -> str:
     return LAYER_TEXT.get(layer, layer)
+
+
+# ------------------------------------------------------------------ budget fallback
+def _cost_function(p):
+    """``combo -> Cost`` with core and supporting-service lines (cached per combination)."""
+    cache: dict = {}
+
+    def cost_of(combo):
+        key = combo.ids + tuple(pt.id for pt in combo.parts)
+        if key not in cache:
+            sup = supporting.select(p, combo.stack(),
+                                    needs_managed_realtime="needs_managed_realtime" in combo.flags)
+            cache[key] = cost.estimate(p, combo.stack(), extra_lines=sup.cost_lines(p))
+        return cache[key]
+    return cost_of
+
+
+_COMBO_LAYERS = (("frontend", lambda c: c.frontend_label), ("backend", lambda c: c.backend.tech["name"]),
+                 ("database", lambda c: getattr(c.database_offering, "display", "") or c.database.tech["name"]),
+                 ("hosting", lambda c: c.hosting.tech["name"] + (f" + {c.frontend_hosting.tech['name']}"
+                                                                 if c.separate_frontend_host else "")))
+
+
+def _combo_diff(a, b) -> tuple[list[str], list[str]]:
+    """Names of the core components where combinations ``a`` and ``b`` differ (a's names, b's names);
+    frontend parts are compared per client layer."""
+    xa, xb = [], []
+    pa = {pt.layer: pt.label for pt in a.parts}
+    pb = {pt.layer: pt.label for pt in b.parts}
+    for layer in sorted(set(pa) | set(pb), key=combine.CLIENT_LAYERS.index):
+        if pa.get(layer) != pb.get(layer):
+            xa.append(pa.get(layer) or f"no {explain_layer(layer)}")
+            xb.append(pb.get(layer) or f"no {explain_layer(layer)}")
+    for layer, get in _COMBO_LAYERS:
+        if layer == "frontend":
+            continue
+        na, nb = get(a), get(b)
+        if na != nb:
+            xa.append(na)
+            xb.append(nb)
+    return xa, xb
+
+
+def budget_assumptions(result) -> list[str]:
+    """The plan 7 trade sentence ("Chose X over Y to fit USD B: ...") or the no-fit sentence."""
+    bc = getattr(result, "budget", None)
+    if bc is None or bc.mode == "fits":
+        return []
+    b = fmt(bc.budget)
+    n = combine.T["budget_fallback_top_n"]
+    pct = fmt(round(combine.T["budget_fallback_accept_ratio"] * 100))
+    if bc.mode == "fallback":
+        x, y = _combo_diff(bc.combo, bc.displaced)
+        return [f"Chose {' + '.join(x)} over {' + '.join(y)} to fit USD {b}/month "
+                f"(budget.monthly_infra_usd={b}): the chosen stack's estimate starts at USD {bc.cost.min:,}/month "
+                f"vs USD {bc.displaced_cost.min:,}, and its combination score {fmt(round(bc.combo.score, 2))} is "
+                f"within {pct}% of the best {fmt(round(bc.displaced.score, 2))}."]
+    text = (f"Budget fallback: no stack among the top {n} combinations has an estimate starting at or below "
+            f"USD {b}/month within {pct}% of the best score, so the cheapest feasible stack "
+            f"(USD {bc.cost.min:,}-{bc.cost.max:,}/month) is kept")
+    if bc.displaced is not None:
+        x, y = _combo_diff(bc.combo, bc.displaced)
+        text += (f": {' + '.join(x)} instead of {' + '.join(y)} (USD {bc.displaced_cost.min:,}-"
+                 f"{bc.displaced_cost.max:,}/month, score {fmt(round(bc.displaced.score, 2))} vs "
+                 f"{fmt(round(bc.combo.score, 2))})")
+    return [text + "."]
 
 
 # ------------------------------------------------------------------ pipeline
@@ -336,6 +464,9 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
                             assumptions=assumptions,
                             integration_notes=integration, relaxed_constraints=relaxed,
                             nearest_feasible=near, decision_trace=dt, kb_version=kbv)
+    # 5b. budget fallback (plan 7): priced with supporting-service lines, as the final estimate is
+    result = combine.apply_budget(result, ranked, p, _cost_function(p))
+    assumptions += budget_assumptions(result)
     best = result.best
     # 6. supporting services, cost
     sup = supporting.select(p, best.stack(), needs_managed_realtime="needs_managed_realtime" in best.flags)

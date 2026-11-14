@@ -190,7 +190,8 @@ class SelfHostedTest(unittest.TestCase):
         r = resolve("postgres", "do_droplets_compose", p)
         self.assertEqual(r.kind, "self_managed")
         self.assertEqual(r.offering["id"], "postgres__self_hosted")
-        self.assertIn("self-managed", r.display)
+        # review finding 2: the display names the engine and where it runs
+        self.assertEqual(r.display, "Self-managed PostgreSQL 17 (on DigitalOcean Droplets + Docker Compose, BLR1)")
         r2 = resolve("postgres", "supabase_cloud", p, require_family="supabase")
         self.assertIsInstance(r2, NoOffering)    # supabase_cloud is not a VM/container host
 
@@ -198,7 +199,7 @@ class SelfHostedTest(unittest.TestCase):
         p = prof("P5", infrastructure__deployment_model="on_premise", infrastructure__cloud_preference="none")
         r = resolve("postgres", "onprem_compose", p)
         self.assertEqual(r.kind, "self_managed")
-        self.assertIn("on premises", r.display)
+        self.assertEqual(r.display, "Self-managed PostgreSQL 17 (on premises)")
         self.assertEqual(r.region, "on premises")
         bad = resolve("postgres", "vercel", p)
         self.assertIsInstance(bad, NoOffering)
@@ -216,6 +217,7 @@ class InHostAndNoneTest(unittest.TestCase):
         p1 = prof("P1")
         r = resolve("sqlite", "hetzner_compose", p1)
         self.assertEqual(r.kind, "in_host")
+        self.assertTrue(r.display.startswith("Self-managed SQLite (on Hetzner"), r.display)
         self.assertFalse(resolve("sqlite", "aws_ecs_fargate", p1).ok)
         self.assertFalse(resolve("sqlite", "vercel", p1).ok)
         self.assertFalse(resolve("sqlite", "hetzner_compose", p1, require_family="supabase").ok)

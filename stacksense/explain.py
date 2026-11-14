@@ -49,6 +49,7 @@ F_CLOUD = "infrastructure.cloud_preference"
 F_DEPLOY = "infrastructure.deployment_model"
 F_PLAT = "project.platforms"
 CLOUD_NAMES = {"aws": "AWS", "gcp": "Google Cloud", "azure": "Azure"}
+ON_PREMISES = "on premises"          # offerings.host_region for customer-premises hosts
 
 # Which core layers a combination synergy term speaks for (combine.T["synergy"] keys).
 SYNERGY_LAYERS = {
@@ -59,6 +60,7 @@ SYNERGY_LAYERS = {
     "same_cloud": ("database", "hosting"), "shared_language": ("frontend", "backend"),
     "bff_split": ("frontend", "backend"), "managed_realtime": ("hosting",),
     "language_count": ("backend",), "one_codebase": ("frontend",),
+    "priced_once": ("database", "hosting"),
 }
 
 
@@ -168,11 +170,15 @@ def _popular(rejections: Iterable, exclude: Iterable[str] = ()) -> list:
     return [r for _, _, r in sorted(rows, key=lambda t: (t[0], t[1]))]
 
 
-def hard_fields(p, layer: str) -> list[str]:
-    """Hard-constraint inputs a candidate of ``layer`` had to satisfy (only the active ones)."""
+def hard_fields(p, layer: str, tech: Mapping | None = None) -> list[str]:
+    """Hard-constraint inputs a candidate of ``layer`` had to satisfy (only the active ones). A
+    self-run back-end framework (not ``saas``) runs on the host, which carries residency, compliance
+    and cloud (filters.py personal-data scope), so only the deployment model binds it."""
     out = []
     if layer.startswith("frontend"):
         return [F_PLAT]
+    if layer == "backend" and tech is not None and not tech.get("saas"):
+        return [F_DEPLOY] if getattr(p, "deployment", "managed_cloud") != "managed_cloud" else []
     if getattr(p, "effective_residency", "none") != "none":
         out.append(F_RES)
     if getattr(p, "compliance", ()) and layer in ("backend", "database", "hosting"):
@@ -196,7 +202,8 @@ def hard_sentence(p, layer: str, tech: dict | None, *, region: str | None = None
         return " ".join(_clean(r) + "." for r in reasons)
     res = getattr(p, "effective_residency", "none")
     if res not in ("none", "other") and region:
-        parts.append(f"runs in {region}, satisfying {F_RES}={res}")
+        where = "runs on premises" if region == ON_PREMISES else f"runs in {region}"
+        parts.append(f"{where}, satisfying {F_RES}={res}")
     elif res not in ("none",) and layer in ("hosting", "database") and tech.get("self_hostable") \
             and getattr(p, "deployment", "") != "managed_cloud":
         parts.append(f"is self-hosted, so data stays where {F_RES}={res} requires")
@@ -216,8 +223,44 @@ def hard_sentence(p, layer: str, tech: dict | None, *, region: str | None = None
 
 
 # ------------------------------------------------------------------ why_not
-def why_not(win: Scored, alt: Scored, *, combo_gap: tuple[float, float] | None = None) -> str:
-    """Alternative's why_not: the two contributions with the largest negative delta vs the winner."""
+_COMBO_PARTS = (("frontend", lambda c: c.frontend.scored if c.frontend is not None else None),
+                ("backend", lambda c: c.backend), ("database", lambda c: c.database),
+                ("hosting", lambda c: c.hosting))
+
+
+def combo_deltas(alt_combo, win_combo) -> list[tuple[float, str]]:
+    """(delta, text) for every combination-level difference between two combinations: synergy terms
+    (by key) and the other layers' candidates. Negative delta = the alternative's stack loses there."""
+    out: list[tuple[float, str]] = []
+    wsyn = {c.key: c for c in win_combo.synergies}
+    asyn = {c.key: c for c in alt_combo.synergies}
+    for key in sorted(set(wsyn) | set(asyn)):
+        w, a = wsyn.get(key), asyn.get(key)
+        d = round((a.value if a else 0.0) - (w.value if w else 0.0), 2)
+        if d >= 0 or abs(d) < 0.005:
+            continue
+        if a is not None:
+            out.append((d, f"in its stack {_clean(a.reason)} ({_signed(a.value)} vs "
+                           f"{_signed(w.value if w else 0)} {key})"))
+        else:
+            out.append((d, f"its stack lacks {key}, while {_clean(w.reason)} ({_signed(w.value)})"))
+    for layer, get in _COMBO_PARTS:
+        sa, sw = get(alt_combo), get(win_combo)
+        if sa is None or sw is None or sa.tech["id"] == sw.tech["id"]:
+            continue
+        d = round(sa.total - sw.total, 2)
+        if d < 0:
+            out.append((d, f"its best {layer} is {_name(sa)} ({_num(sa.total)} vs {_num(sw.total)} for "
+                           f"{_name(sw)})"))
+    return sorted(out, key=lambda t: (t[0], t[1]))
+
+
+def why_not(win: Scored, alt: Scored, *, combo_gap: tuple[float, float] | None = None,
+            alt_combo=None, win_combo=None, note: str | None = None) -> str:
+    """Alternative's why_not. Layer-level loss: the two contributions with the largest negative delta
+    vs the winner. When the alternative scores at least as high on its own but loses as a full stack
+    (``combo_gap`` with both combinations given), the two largest combination-level losses instead
+    (synergy terms and the other layers it pairs with). ``note``: budget-fallback reason."""
     deltas: dict[str, list] = {}
     for c in win.contributions:
         deltas[c.key] = [c.value, 0.0, c, None]
@@ -228,7 +271,8 @@ def why_not(win: Scored, alt: Scored, *, combo_gap: tuple[float, float] | None =
     worst = sorted(((a - w, k, cw, ca, w, a) for k, (w, a, cw, ca) in deltas.items() if a - w < 0),
                    key=lambda t: (round(t[0], 4), t[1]))[:2]
     an, wn = _name(alt), _name(win)
-    if combo_gap is not None and round(alt.total, 2) >= round(win.total, 2):
+    combo_level = combo_gap is not None and round(alt.total, 2) >= round(win.total, 2)
+    if combo_level:
         head = (f"{an} scores {_num(alt.total)} on its own (vs {_num(win.total)} for {wn}), but the best "
                 f"full stack built around it scores {_num(combo_gap[0])} vs {_num(combo_gap[1])}")
     elif combo_gap is None and round(alt.total, 2) > round(win.total, 2):
@@ -238,7 +282,15 @@ def why_not(win: Scored, alt: Scored, *, combo_gap: tuple[float, float] | None =
         head = f"{an} scores {_num(alt.total)} vs {_num(win.total)} for {wn}"
         if combo_gap is not None:
             head += f" (full stack {_num(combo_gap[0])} vs {_num(combo_gap[1])})"
+    if note:
+        head += f"; {note}"
+    if combo_level and alt_combo is not None and win_combo is not None:
+        bits = [t for _, t in combo_deltas(alt_combo, win_combo)[:2]]
+        if bits:
+            return head + ": " + "; ".join(bits) + "."
     if not worst:
+        if note:
+            return head + "."
         return head + "; no single term is worse, the combination terms decide." if combo_gap else \
             head + "; equal terms, the tie is broken by id."
     bits = []
@@ -271,10 +323,16 @@ def _just_sentences(name: str, chosen: Scored, extra: Iterable[Contribution]) ->
     return out
 
 
-def _none_texts(layer: str, chosen: Scored, p) -> tuple[str, list[str]]:
-    """Justification and driven_by for a 'None' component."""
+def _none_texts(layer: str, chosen: Scored, p, backend=None) -> tuple[str, list[str]]:
+    """Justification and driven_by for a 'None' component. ``backend``: the chosen back end when the
+    layer is the database (a BaaS / commerce back end that stores its own data)."""
     vals = [f"{f}={fmt(val(p, f))}" for f in DYNAMIC_FIELDS if val(p, f) is not None]
     what = {"backend": "server logic", "database": "stored application data"}.get(layer, layer)
+    if backend is not None and not _is_none(backend):
+        bname = _name(backend)
+        just = (f"No separate database is needed: {bname} keeps the application data in its own managed "
+                f"store, so there is no database product to run or pay for separately.")
+        return just, _uniq(["requirements.auth", "project.type"] + driven_fields(chosen.contributions))
     just = (f"No {layer} is needed: " + ", ".join(vals[:-1]) + (" and " if len(vals) > 1 else "")
             + (vals[-1] if vals else "") + f" need no {what} (dynamic score "
             + f"{getattr(p, 'dynamic_score', 0)}/8), so the site is served as pre-rendered pages.")
@@ -286,7 +344,8 @@ def component(layer: str, chosen: Scored, others: Iterable[Scored] = (), rejecti
               choice: str | None = None, combo_alt: tuple[Scored, float, float] | None = None,
               extra: Iterable[Contribution] = (), hard: Iterable[str] = (), kb_id: str | None = None,
               more_alternatives: Iterable[dict] = (), more_tradeoffs: Iterable[str] = (),
-              extra_sentences: Iterable[str] = (), subject: str | None = None) -> dict:
+              extra_sentences: Iterable[str] = (), subject: str | None = None, backend=None,
+              combo_note: str | None = None) -> dict:
     """The statement section 4 component for ``chosen`` (plan 5.6).
 
     ``others``: other scored candidates of the layer, best first. ``rejections``: filters.Rejection
@@ -302,17 +361,17 @@ def component(layer: str, chosen: Scored, others: Iterable[Scored] = (), rejecti
 
     # justification + driven_by
     if tech.get("kind") == "none":
-        just, fields = _none_texts(layer, chosen, p)
+        just, fields = _none_texts(layer, chosen, p, backend)
     else:
         sentences = _just_sentences(subject or name, chosen, extra)
         sentences.extend(s for s in extra_sentences if s)
         sentences.extend(h for h in hard if h)
         just = " ".join(sentences)
         fields = driven_fields(list(chosen.contributions) + extra)
-    fields = _uniq(fields + hard_fields(p, layer))
+    # hard-constraint fields first (plan 5.6: the choice had to satisfy them; they are never cut by
+    # the cap), then contribution fields by |value|, then the top filtered-out candidate's filter fields
     pop = _popular(rejections, exclude=[tech["id"]])
-    if pop:
-        fields = _uniq(fields + list(pop[0].fields))
+    fields = _uniq(hard_fields(p, layer, tech) + fields + (list(pop[0].fields) if pop else []))
     if not fields:
         fields = [F_PLAT] if layer == "frontend" else ["project.type"]
     driven = fields[:MAX_DRIVEN_BY]
@@ -336,8 +395,11 @@ def component(layer: str, chosen: Scored, others: Iterable[Scored] = (), rejecti
                 f"{o.tech['name']} would be the choice if a dynamic feature were added; with {dyn} it would "
                 f"only add a component to run, secure and pay for (scores {_num(o.total)} vs {_num(chosen.total)}).")
     if combo_alt is not None:
-        cand, alt_score, win_score = combo_alt
-        add(cand.tech["id"], cand.tech["name"], why_not(chosen, cand, combo_gap=(alt_score, win_score)))
+        cand, alt_score, win_score = combo_alt[:3]
+        combos = combo_alt[3:5] if len(combo_alt) >= 5 else (None, None)
+        add(cand.tech["id"], cand.tech["name"],
+            why_not(chosen, cand, combo_gap=(alt_score, win_score), alt_combo=combos[0], win_combo=combos[1],
+                    note=combo_alt[5] if len(combo_alt) > 5 else None))
     for o in others:                                       # true runner-up within the layer
         if len(alts) >= 1:
             break
@@ -394,15 +456,26 @@ def _layer_scored(combo, layer: str) -> Scored | None:
     return getattr(combo, layer)
 
 
+def _budget_note(result, combo) -> str | None:
+    """Why a higher-scoring combination was set aside by the budget fallback (plan 7), else None."""
+    bc = getattr(result, "budget", None)
+    if bc is None or bc.displaced is None or combo.ids != bc.displaced.ids:
+        return None
+    return (f"its full stack costs at least USD {bc.displaced_cost.min:,}/month, above "
+            f"budget.monthly_infra_usd={fmt(bc.budget)}, so the budget fallback chose a stack starting at "
+            f"USD {bc.cost.min:,}")
+
+
 def _combo_alt(result, layer: str):
-    """First runner-up combination whose ``layer`` candidate differs from the winner's."""
+    """First runner-up combination whose ``layer`` candidate differs from the winner's:
+    (candidate, its combo score, winner combo score, its combo, winning combo, budget note)."""
     best = result.best
     win = _layer_scored(best, layer)
     for c in result.runners_up:
         s = _layer_scored(c, layer)
         if s is None or win is None or s.tech["id"] == win.tech["id"]:
             continue
-        return s, c.score, best.score
+        return s, c.score, best.score, c, best, _budget_note(result, c)
     return None
 
 
@@ -475,8 +548,9 @@ def _database(p, result, ranked, rejections) -> dict:
     db = best.database
     res = best.database_offering
     choice = db.tech["name"]
-    if res is not None and getattr(res, "offering", None) and getattr(res, "display", ""):
-        choice = res.display          # the offering name already names the engine and region
+    if res is not None and getattr(res, "display", "") and (
+            getattr(res, "offering", None) or getattr(res, "kind", None) in ("self_managed", "in_host")):
+        choice = res.display          # the offering / self-managed display already names the engine
     elif res is not None and hasattr(res, "choice"):
         choice = res.choice(db.tech["name"])
     hard = []
@@ -496,7 +570,8 @@ def _database(p, result, ranked, rejections) -> dict:
         trade.append(f"{res.display} runs on {res.offering['underlying_cloud']}; an outage there affects it.")
     comp = component("database", db, ranked.get("database") or [], rejections.get("database") or [], p,
                      choice=choice, combo_alt=_combo_alt(result, "database"),
-                     extra=_synergies_for(best, "database"), hard=hard, more_tradeoffs=trade)
+                     extra=_synergies_for(best, "database"), hard=hard, more_tradeoffs=trade,
+                     backend=best.backend)
     off = getattr(res, "offering", None)
     if off:
         comp["offering_id"] = off["id"]
@@ -645,5 +720,5 @@ def decision_trace(p, ranked: Mapping[str, list], rejections: Mapping[str, list]
     return out
 
 
-__all__ = ["component", "core_components", "summary", "decision_trace", "why_not", "top_drivers",
+__all__ = ["component", "core_components", "summary", "decision_trace", "why_not", "combo_deltas", "top_drivers",
            "driven_fields", "hard_fields", "hard_sentence", "stack_contributions"]

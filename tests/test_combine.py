@@ -6,7 +6,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from stacksense import architecture, combine, cost, description, existing, filters, kb, scoring
+from stacksense import architecture, combine, cost, description, existing, filters, kb, offerings, scoring
 from stacksense.combine import T, search
 from stacksense.profile import derive
 from stacksense.scoring import Scored
@@ -104,17 +104,26 @@ class HardRulesTest(unittest.TestCase):
 
     def test_c2_realtime(self):
         self.assertEqual(self.bh("nestjs", "aws_ecs_fargate", self.p3), (None, ()))
-        r, flags = self.bh("nestjs", "vercel", self.p3)
+        r, flags = self.bh("nextjs_api", "vercel", self.p3)
         self.assertIsNone(r)
         self.assertEqual(flags, ("needs_managed_realtime",))
         # no managed realtime service available -> dropped
-        r, flags = self.bh("nestjs", "vercel", self.p3, cache={"realtime": []})
+        r, flags = self.bh("nextjs_api", "vercel", self.p3, cache={"realtime": []})
         self.assertEqual(r[0], "C2")
         self.assertIn("requirements.realtime=true", r[1])
         # BaaS with built-in realtime needs no long-lived host
         self.assertEqual(self.bh("supabase", "supabase_cloud", self.p2), (None, ()))
         # no realtime requirement -> no flag
-        self.assertEqual(self.bh("nestjs", "vercel", self.p1), (None, ()))
+        self.assertEqual(self.bh("nextjs_api", "vercel", self.p1), (None, ()))
+
+    def test_c1_framework_server_not_on_static_host(self):
+        # review finding 6: a long-running framework server never runs on a static/edge host
+        for be, host in (("nestjs", "vercel"), ("nestjs", "aws_amplify"), ("django", "netlify"),
+                         ("aspnet_core", "azure_static_web_apps")):
+            r, _ = self.bh(be, host, self.p1)
+            self.assertEqual(r[0], "C1", (be, host))
+        # route handlers live inside the Next.js app, which the static host's functions run
+        self.assertIsNone(self.bh("nextjs_api", "vercel", self.p1)[0])
 
     def test_c3_database_on_host(self):
         cache = {}
@@ -452,7 +461,8 @@ class WideningTest(unittest.TestCase):
         res = search(ranked_for(p), p)
         self.assertFalse(res.widened)
         self.assertEqual(res.k, 6)
-        self.assertLessEqual(res.considered, 6 ** 4)
+        # backend shortlist: top K plus up to K_budget_neutral more without budget_fit
+        self.assertLessEqual(res.considered, 6 ** 3 * (6 + T["K_budget_neutral"]))
 
 
 class InfeasibleTest(unittest.TestCase):
@@ -534,3 +544,107 @@ class PublicSmokeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------------------------ Phase 2 review fixes
+class ReviewFixesTest(unittest.TestCase):
+    def test_framework_backend_needs_a_database(self):
+        # finding 1: a framework back end with database None is rejected when data must be stored
+        p = prof("P6", budget__monthly_infra_usd=0)
+        self.assertTrue(p.needs_database)
+        r = combine.check_backend_database(S("nestjs"), S("none"), p)
+        self.assertEqual(r[0], "C4")
+        # a BaaS / commerce SaaS keeps its own data: database None is its store
+        self.assertIsNone(combine.check_backend_database(S("appwrite"), S("none"), p))
+        self.assertIsNone(combine.check_backend_database(S("shopify"), S("none"), p))
+        for b in (0, 1, 5):
+            res = search(ranked_for(prof("P6", budget__monthly_infra_usd=b)), prof("P6", budget__monthly_infra_usd=b))
+            for c in [res.best] + res.runners_up:
+                self.assertNotEqual(c.database.tech["id"], "none", (b, c.ids))
+
+    def test_baas_host_does_not_serve_a_static_build(self):
+        # Supabase Cloud runs only its own APIs (runtimes baas, edge_js): a static web build needs a
+        # real static or application host next to it
+        p = prof("P2")
+        fh, rej = combine.choose_frontend_host(web("astro"), S("supabase"), S("supabase_cloud"),
+                                               ranked_for(p)["hosting"], p)
+        self.assertIsNone(rej)
+        self.assertNotEqual(fh.tech["id"], "supabase_cloud")
+
+    def test_priced_once_for_bundled_plan(self):
+        # finding 5: Supabase backend + Supabase Postgres + Supabase Cloud are one bill
+        p = prof("P2", budget__monthly_infra_usd=60)
+        ranked = ranked_for(p)
+        be = next(s for s in ranked["backend"] if s.tech["id"] == "supabase")
+        db = next(s for s in ranked["database"] if s.tech["id"] == "postgres")
+        host = next(s for s in ranked["hosting"] if s.tech["id"] == "supabase_cloud")
+        res = combine.resolve_database(be, db, host, p, {})
+        c = combine.priced_once_term(be, db, host, res, p)
+        self.assertIsNotNone(c)
+        self.assertGreater(c.value, 0)
+        self.assertEqual(c.fields, ("budget.monthly_infra_usd",))
+        self.assertIn("one Supabase project plan", c.reason)
+        # no budget term when nothing is re-priced (framework + host, engine band = offering band skipped)
+        self.assertIsNone(combine.priced_once_term(S("nestjs"), S("none"), S("do_app_platform"),
+                                                   offerings.resolve("none", "do_app_platform", p), p))
+
+    def test_backend_shortlist_keeps_budget_neutral_candidates(self):
+        p = prof("P2", budget__monthly_infra_usd=10)
+        ranked = ranked_for(p)["backend"]
+        top = [s.tech["id"] for s in ranked[:6]]
+        short = [s.tech["id"] for s in combine.shortlist(ranked, 6)]
+        self.assertEqual(short[: len(top)], [x for x in short if x in top][: len(top)])
+        self.assertTrue(set(top) <= set(short))
+        self.assertIn("supabase", short)
+        self.assertNotIn("supabase", top)
+
+
+class BudgetFallbackTest(unittest.TestCase):
+    """Plan 7 budget fallback (combine.apply_budget) with a synthetic cost function."""
+
+    class C:
+        def __init__(self, lo, hi):
+            self.min, self.max = lo, hi
+
+    def setUp(self):
+        self.p = prof("P6")
+        self.ranked = ranked_for(self.p)
+        self.res = search(self.ranked, self.p)
+        self.pool = list(self.res.pool)
+        self.assertGreater(len(self.pool), 5)
+
+    def run_with(self, costs, budget):
+        p = prof("P6", budget__monthly_infra_usd=budget)
+        index = {c.ids: i for i, c in enumerate(self.pool)}
+        return combine.apply_budget(self.res, self.ranked, p,
+                                    lambda c: self.C(*costs(index.get(c.ids, len(self.pool)))))
+
+    def test_fits_keeps_best(self):
+        r = self.run_with(lambda i: (10, 20), 100)
+        self.assertEqual(r.budget.mode, "fits")
+        self.assertEqual(r.best.ids, self.res.best.ids)
+
+    def test_fallback_takes_highest_scoring_fit_within_ratio(self):
+        r = self.run_with(lambda i: (500, 900) if i < 2 else (50, 90), 100)
+        self.assertEqual(r.budget.mode, "fallback")
+        self.assertEqual(r.best.ids, self.pool[2].ids)
+        self.assertEqual(r.budget.displaced.ids, self.res.best.ids)
+        self.assertEqual(r.runners_up[0].ids, self.res.best.ids)     # displaced stays citable
+        self.assertGreaterEqual(r.best.score, combine.accept_floor(self.res.best.score))
+        self.assertEqual(combine.accept_floor(100.0), 85.0)
+        self.assertEqual(combine.accept_floor(-10.0), -11.5)
+
+    def test_no_fit_keeps_cheapest(self):
+        r = self.run_with(lambda i: (1000 - i, 2000), 10)
+        self.assertEqual(r.budget.mode, "cheapest")
+        self.assertLess(r.budget.cost.min, 1000)
+        r2 = self.run_with(lambda i: (300, 400), 10)            # all equal: the best rank is kept
+        self.assertEqual(r2.best.ids, self.res.best.ids)
+        self.assertEqual(r2.budget.mode, "cheapest")
+        self.assertIsNone(r2.budget.displaced)
+
+    def test_deterministic(self):
+        a = self.run_with(lambda i: (500, 900) if i < 3 else (50, 90), 100)
+        b = self.run_with(lambda i: (500, 900) if i < 3 else (50, 90), 100)
+        self.assertEqual(a.best.ids, b.best.ids)
+        self.assertEqual(a.budget.to_dict(), b.budget.to_dict())
