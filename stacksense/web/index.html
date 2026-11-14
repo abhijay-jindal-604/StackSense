@@ -3,26 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StackSense core sample</title>
-<meta name="description" content="Deterministic tech stack recommendations, read as a core sample: every layer with the reason it is there.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23C7D1CE'/%3E%3Crect x='9' y='3' width='14' height='6' fill='%230F7A70'/%3E%3Crect x='9' y='9' width='14' height='6' fill='%233B55A0'/%3E%3Crect x='9' y='15' width='14' height='6' fill='%23A8680F'/%3E%3Crect x='9' y='21' width='14' height='8' fill='%237A3F6A'/%3E%3C/svg%3E">
+<title>StackSense: fitting bay</title>
+<meta name="description" content="Deterministic tech stack recommendations. Every answer bolts on a part, and each part is tagged with the answer that put it there.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='5' y='2' width='16' height='13' rx='4' fill='%238F9AA6' stroke='%2311161D' stroke-width='2'/%3E%3Crect x='8' y='6' width='10' height='4' rx='1.5' fill='%23F26A2C'/%3E%3Crect x='11' y='15' width='4' height='7' fill='%2338414C'/%3E%3Crect x='3' y='21' width='20' height='4' fill='%23F3B53A' stroke='%2311161D' stroke-width='1.5'/%3E%3C/svg%3E">
+<script>(function(){var q=new URLSearchParams(location.search),d=document.documentElement;if(q.get('shot')==='1'){d.dataset.shot='';d.dataset.theme='print';}if(q.get('theme'))d.dataset.theme=q.get('theme');})();</script>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/screens.css">
+<link rel="stylesheet" href="css/hero.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header class="topbar" id="topbar">
-  <a class="brand" href="#/" aria-label="StackSense, start screen">
-    <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect x="7" y="2" width="14" height="6" class="l-fe"/><rect x="7" y="8" width="14" height="6" class="l-be"/><rect x="7" y="14" width="14" height="6" class="l-db"/><rect x="7" y="20" width="14" height="6" class="l-ho"/></svg>
-    <span>StackSense</span>
-  </a>
-  <nav id="nav" aria-label="Main"></nav>
-  <div class="topright">
-    <span class="llm-state" id="llm-state"></span>
-  </div>
+<header class="top" id="topbar">
+  <a class="logo" href="#/" aria-label="StackSense, fitting bay"><svg viewBox="0 0 26 26" aria-hidden="true"><rect x="5" y="2" width="16" height="13" rx="4" fill="#8F9AA6" stroke="#11161D" stroke-width="2"/><rect x="8" y="6" width="10" height="4" rx="1.5" fill="#F26A2C"/><rect x="11" y="15" width="4" height="7" fill="#38414C"/><rect x="3" y="21" width="20" height="4" fill="#F3B53A" stroke="#11161D" stroke-width="1.5"/></svg>Stack<b>Sense</b></a>
+  <nav class="nav" id="nav" aria-label="Main"></nav>
+  <div class="meta" id="meta"></div>
 </header>
 <main id="main" tabindex="-1"></main>
-<footer class="footer" id="footer"></footer>
+<footer class="foot" id="footer"></footer>
 <noscript><p class="noscript">StackSense needs JavaScript for this interface. The same engine runs from the command line: <code>python3 -m stacksense run scenario.json</code>.</p></noscript>
+<script src="js/bot.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

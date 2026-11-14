@@ -1,1 +1,16 @@
 Big Shoulders Display and Albert Sans are licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Files are unmodified apart from conversion to WOFF2.
+
+
+Bowlby One, Geologica and Spline Sans Mono are also licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Files are unmodified apart from WOFF2 subsetting by Google Fonts (latin / latin-ext). The full licence text is the same as above and is shared by all families.
+
+Bowlby One
+Copyright (c) 2011 by vernon adams (vern@newtypography.co.uk), with Reserved Font Names "Bowlby" "Bowlby One" and "Bowlby One SC".
+Source: https://github.com/google/fonts/tree/main/ofl/bowlbyone
+
+Geologica
+Copyright 2020 The Geologisk Project Authors (https://github.com/monokromskriftforlag/geologisk)
+Source: https://github.com/google/fonts/tree/main/ofl/geologica
+
+Spline Sans Mono
+Copyright 2022 The Spline Sans Mono Project Authors (https://github.com/SorkinType/SplineSansMono)
+Source: https://github.com/google/fonts/tree/main/ofl/splinesansmono
