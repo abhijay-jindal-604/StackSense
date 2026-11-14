@@ -137,6 +137,26 @@ class CliTests(unittest.TestCase):
         self.assertEqual(c._run_exit_code(0, ["bad field"], ok), 2)
         self.assertEqual(c._run_exit_code(2, [], ok), 2)
 
+    def test_diff_and_explain(self):
+        with tempfile.TemporaryDirectory() as d:
+            v = json.loads((PUBLIC / "P1.json").read_text(encoding="utf-8"))
+            v.setdefault("requirements", {})["cms"] = "headless"
+            vp = Path(d) / "P1_cms.json"
+            vp.write_text(json.dumps(v), encoding="utf-8")
+            r = cli("diff", str(PUBLIC / "P1.json"), str(vp))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Changed inputs: requirements.cms", r.stdout)
+            r = cli("diff", str(PUBLIC / "P1.json"), str(vp), "--json")
+            self.assertEqual(json.loads(r.stdout)["changed_fields"], ["requirements.cms"])
+            self.assertEqual(cli("diff", str(PUBLIC / "P1.json"), str(Path(d) / "missing.json")).returncode, 2)
+        r = cli("explain", str(PUBLIC / "P2.json"), "--layer", "backend")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("== backend:", r.stdout)
+        self.assertIn("rejected", r.stdout)
+        r = cli("explain", str(PUBLIC / "P2.json"))
+        self.assertIn("== chosen", r.stdout)
+        self.assertEqual(cli("explain", str(PUBLIC / "P2.json"), "--layer", "nope").returncode, 2)
+
     def test_later_subcommands(self):
         r = cli("wizard")
         self.assertEqual(r.returncode, 2)

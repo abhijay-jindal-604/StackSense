@@ -10,7 +10,7 @@ from . import engine, output
 from .io import load_scenarios, output_name, write_output
 from .validate import validate
 
-_LATER = ("wizard", "explain", "diff")
+_LATER = ("wizard",)
 _PUBLIC_DIR = Path(__file__).resolve().parent.parent / "scenarios" / "public"
 
 
@@ -145,6 +145,98 @@ def _cmd_selftest(args) -> int:
     return 0 if failed == 0 else 1
 
 
+def _load_one(path: str, fill_defaults: bool = False):
+    """(scenario or None, output) for a scenario or output file; the first element of an array file."""
+    loaded = load_scenarios(Path(path))
+    if not loaded:
+        raise ValueError(f"{path}: no scenario found")
+    first = loaded[0]
+    if first.load_error:
+        raise ValueError(f"{first.source_name}: {first.load_error}")
+    from . import diff as _diff
+    if _diff.is_output(first.raw):
+        return None, first.raw
+    return first.raw, engine.recommend_loaded(first, fill_defaults=fill_defaults)
+
+
+def _cmd_diff(args) -> int:
+    import json
+
+    from . import diff as _diff
+    try:
+        sa, a = _load_one(args.a, args.fill_defaults)
+        sb, b = _load_one(args.b, args.fill_defaults)
+    except (OSError, ValueError) as e:
+        _err(str(e))
+        return 2
+    d = _diff.diff(a, b, scenario_a=sa, scenario_b=sb) if sa is not None and sb is not None else _diff.diff(a, b)
+    if args.json:
+        sys.stdout.write(json.dumps(d, indent=2, sort_keys=True, ensure_ascii=True) + "\n")
+    else:
+        for line in _diff.render(d):
+            _out(line)
+    return 0
+
+
+_TRACE_LAYERS = {"frontend": ("frontend_web", "frontend_mobile")}
+
+
+def _cmd_explain(args) -> int:
+    try:
+        _, out = _load_one(args.path, args.fill_defaults)
+    except (OSError, ValueError) as e:
+        _err(str(e))
+        return 2
+    trace = out.get("decision_trace") or {}
+    _out(f"{out.get('scenario_id')}  {out.get('status')}  architecture: {out.get('architecture_style')}")
+    prof = trace.get("profile") or {}
+    if prof:
+        _out("profile: " + ", ".join(f"{k}={prof[k]}" for k in sorted(prof)))
+    layers = trace.get("layers") or {}
+    wanted = [args.layer] if args.layer else list(layers)
+    keys = []
+    for w in wanted:
+        keys += [k for k in _TRACE_LAYERS.get(w, (w,)) if k in layers]
+    if args.layer and not keys:
+        _err(f"no trace for layer {args.layer}; layers: {', '.join(layers) or '(none)'}")
+        return 2
+    for key in keys:
+        lt = layers[key]
+        _out("")
+        _out(f"== {key}: {lt.get('candidates')} candidates, {len(lt.get('rejected') or [])} rejected by hard filters")
+        _out(f"  {'rank':<4} {'candidate':<40} {'score':>7}  top contributions")
+        for i, t in enumerate(lt.get("top") or [], 1):
+            cs = sorted(t.get("contributions") or [], key=lambda c: (-abs(c.get("value", 0)), c.get("key", "")))[:3]
+            parts = ", ".join(f"{c['key']} {c['value']:+g}" for c in cs)
+            _out(f"  {i:<4} {str(t.get('name'))[:40]:<40} {t.get('total', 0):>7.2f}  {parts}")
+        rej = lt.get("rejected") or []
+        if rej:
+            _out(f"  {'rejected':<45} {'rule':<5} reason")
+            for r in rej[:args.max_rejected]:
+                _out(f"  {str(r.get('name'))[:45]:<45} {str(r.get('rule')):<5} {r.get('reason_text')}")
+            if len(rej) > args.max_rejected:
+                _out(f"  ... {len(rej) - args.max_rejected} more")
+    if not args.layer:
+        combos = trace.get("combinations") or {}
+        if combos:
+            _out("")
+            _out(f"== combinations: {combos.get('considered')} considered, {combos.get('passed')} passed")
+            for i, c in enumerate(combos.get("top") or [], 1):
+                _out(f"  {i:<4} {' + '.join(str(x) for x in (c.get('ids') or []))[:90]}  score {c.get('score', '-')}")
+        arch = trace.get("architecture") or {}
+        if arch:
+            _out("")
+            _out(f"== architecture: {arch.get('style')} (rule {arch.get('rule')}): {arch.get('reason')}")
+    stack = out.get("stack") or {}
+    if stack and not args.layer:
+        _out("")
+        _out("== chosen")
+        for k in output.CORE_LAYERS:
+            c = stack.get(k) or {}
+            _out(f"  {k:<10} {c.get('choice')}  [driven by {', '.join(c.get('driven_by') or [])}]")
+    return 0
+
+
 def _cmd_later(args) -> int:
     _err(f"{args.command}: not available yet")
     return 2
@@ -222,6 +314,18 @@ def build_parser() -> argparse.ArgumentParser:
     kc.add_argument("--core", action="store_true",
                     help="minimum counts for core layers only (frontend, backend, database, hosting)")
     k.set_defaults(func=_cmd_kb)
+    d = sub.add_parser("diff", help="what-if diff of two scenarios or two outputs")
+    d.add_argument("a")
+    d.add_argument("b")
+    d.add_argument("--json", action="store_true", help="print the diff as JSON")
+    d.add_argument("--fill-defaults", action="store_true")
+    d.set_defaults(func=_cmd_diff)
+    e = sub.add_parser("explain", help="print the decision trace of a scenario or output as text tables")
+    e.add_argument("path")
+    e.add_argument("--layer", default=None, help="frontend, backend, database or hosting")
+    e.add_argument("--max-rejected", type=int, default=10)
+    e.add_argument("--fill-defaults", action="store_true")
+    e.set_defaults(func=_cmd_explain)
     for name in _LATER:
         p = sub.add_parser(name, help="not available yet", add_help=False)
         p.add_argument("rest", nargs=argparse.REMAINDER)

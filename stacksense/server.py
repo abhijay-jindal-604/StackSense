@@ -10,7 +10,7 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__, engine, kb, output, schema
 from .io import MAX_BYTES, _parse_text
@@ -232,8 +232,24 @@ class Handler(BaseHTTPRequestHandler):
         if route == "sources" and n == 1:
             rows = [{"key": k, "title": v[0], "url": v[1], "accessed": v[2]} for k, v in sorted(kb.SOURCES.items())]
             return self._json(200, rows, head)
-        if route in ("warnings", "sensitivity") and n == 1:
-            raise ApiError(501, f"/api/{route} is not implemented in this build.")
+        if route == "warnings" and n == 1:
+            from . import conflicts
+            rows = [{"code": code, "severity": list(e.severity), "fields": list(e.fields), "template": e.template,
+                     "effect": e.effect, "emitted_by": e.source,
+                     "not_emitted": conflicts.NOT_EMITTED.get(code)}
+                    for code, e in sorted(conflicts.CATALOGUE.items())]
+            return self._json(200, rows, head)
+        if route == "sensitivity" and n == 1:
+            from . import sensitivity
+            base = (parse_qs(query or "").get("base") or [""])[0]
+            entry = _scenario_index().get(base)
+            if entry is None:
+                raise ApiError(404 if base else 400, "Query parameter 'base' must name a known scenario id.")
+            raw = json.loads(entry["path"].read_text(encoding="utf-8-sig"))
+            if isinstance(raw, list):
+                raw = raw[0] if raw else {}
+            res = sensitivity.run(raw)
+            return self._json(200, {**res, "markdown": sensitivity.markdown(res)}, head)
         if route == "validate" and n == 1:
             body = _json_body(self)
             raw = _need_scenario(body)
@@ -248,7 +264,19 @@ class Handler(BaseHTTPRequestHandler):
             result = engine.recommend(raw, fill_defaults=fill)
             return self._send(200, output.dumps(result).encode("utf-8"), "application/json; charset=utf-8")
         if route == "diff" and n == 1:
-            raise ApiError(501, "/api/diff is not implemented: diff.py is not part of this build.")
+            from . import diff as _diff
+            body = _json_body(self)
+            a, b = _need_scenario(body, "a"), _need_scenario(body, "b")
+            if not isinstance(a, dict) or not isinstance(b, dict):
+                raise ApiError(400, "'a' and 'b' must be JSON objects (scenarios or outputs).")
+            fill = _flag(body, "fill_defaults")
+            sa = None if _diff.is_output(a) else a
+            sb = None if _diff.is_output(b) else b
+            oa = a if sa is None else engine.recommend(a, fill_defaults=fill, trace=False)
+            ob = b if sb is None else engine.recommend(b, fill_defaults=fill, trace=False)
+            d = _diff.diff(oa, ob, scenario_a=sa, scenario_b=sb) if sa is not None and sb is not None \
+                else _diff.diff(oa, ob)
+            return self._json(200, d)
         if route == "llm" and n == 2 and segs[1] == "suggest":
             _json_body(self)
             raise ApiError(409, "The LLM feature is off; no suggestions are available.")
