@@ -220,6 +220,10 @@ CATALOGUE: dict[str, Entry] = {
     "OVERENGINEERING_AVOIDED": _e(I, ["team.size", "scale.users_12_months", "team.has_devops"],
                                   "{name} was not used although it otherwise ranked in the top {k} for the {layer}: "
                                   "{threshold_text}"),
+    "DATA_SHAPE_GENERAL_PURPOSE": _e(W, ["requirements.data_shape"],
+                                     "requirements.data_shape={shape} but {name} is a {kind} database, chosen for the "
+                                     "whole stack (fit, synergies, cost); {alt} matches {shape} data and is the "
+                                     "upgrade path if volume or query load grows."),
     "LOCK_IN_RISK": _e((I, W), ["infrastructure.lock_in_tolerance"],
                        "{name} has a proprietary API; moving away means rewriting the {area} code."),
     "MULTI_TENANT_ISOLATION": _e(I, ["requirements.multi_tenant"],
@@ -807,6 +811,18 @@ def post_checks(p, combo, supporting=None, cost=None, ranked: Mapping[str, list]
                 if better < k:
                     add(conflict("OVERENGINEERING_AVOIDED", name=s.tech["name"], k=k,
                                  layer=layer.replace("_", " "), threshold_text=c.reason, fields=c.fields))
+
+    # ---- explicit specialised data shape served by a general-purpose database
+    shape = val(p, "requirements.data_shape", "auto")
+    if shape not in ("auto", "relational") and core["database"] and ranked and ranked.get("database"):
+        from .scoring import SHAPE_KINDS
+        db = core["database"][0]
+        kinds = SHAPE_KINDS.get(shape, ())
+        if db.get("kind") not in kinds:
+            alt = next((x.tech for x in ranked["database"] if x.tech.get("kind") in kinds), None)
+            if alt is not None:
+                add(conflict("DATA_SHAPE_GENERAL_PURPOSE", shape=shape, name=db["name"], kind=db.get("kind"),
+                             alt=alt["name"]))
 
     # ---- lock-in
     tol = val(p, "infrastructure.lock_in_tolerance", "medium")

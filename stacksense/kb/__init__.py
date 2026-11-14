@@ -30,7 +30,7 @@ MIN_COUNTS = {
 # Host families an offering may name: the hosts actually used in kb.offerings. The cloud hyperscalers must match the
 # ``underlying_cloud`` of hosting records (cross-checked in integrity_problems); the rest are managed-database vendors.
 HOST_FAMILIES = ("atlas", "aura", "aws", "azure", "clickhouse_cloud", "cloudflare", "cockroach_cloud", "digitalocean",
-                 "fly", "gcp", "neon", "self_hosted", "snowflake", "supabase")
+                 "fly", "gcp", "neon", "self_hosted", "snowflake", "supabase", "tiger_cloud")
 
 
 def _attest_ok(v) -> bool:

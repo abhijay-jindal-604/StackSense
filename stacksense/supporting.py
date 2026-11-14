@@ -493,11 +493,17 @@ class _Cx:
     def k8s_host(self) -> bool:
         return any(h.get("kind") == "k8s" or (h.get("kind") == "onprem" and "kubernetes" in _caps(h)) for h in self.hosts)
 
+    def _web_hosts(self) -> tuple:
+        """Hosts that serve web pages (a BaaS host's 'edge' means edge functions, not a page CDN)."""
+        return tuple(h for h in self.hosts if h.get("kind") == "static_host" or {"ssg", "ssr"} & set(_caps(h)))
+
     def edge_host(self) -> bool:
-        return any("edge" in _caps(h) and h.get("kind") in ("static_host", "paas", "serverless_fn") for h in self.hosts)
+        return any("edge" in _caps(h) and h.get("kind") in ("static_host", "paas", "serverless_fn")
+                   for h in self._web_hosts())
 
     def git_deploy_host(self) -> bool:
-        return any(h.get("kind") in ("static_host", "paas") and provider_of(h) not in HYPERSCALERS for h in self.hosts)
+        return any(h.get("kind") in ("static_host", "paas") and provider_of(h) not in HYPERSCALERS
+                   for h in self._web_hosts())
 
     def logs_host(self) -> bool:
         return any(h.get("kind") in ("static_host", "paas", "serverless_fn") for h in self.hosts)
@@ -1187,7 +1193,9 @@ def _score(slot: Slot, rec: dict, p, cx: _Cx, bundle_available: bool,
     ctx = LayerContext(layer=slot.kb_layer, supporting_layers=cx.n_layers)
     base = _scoring.score(rec, p, ctx)
     contribs = [c for c in base.contributions if c.key in SCORE_KEYS and c.key != "budget_fit"]
-    bt = _budget_term(rec, p, cx, floors, slot.kb_layer)
+    # a service bundled with the chosen back end is billed in the back end's plan (cost.estimate prices it
+    # at 0), so its stand-alone band must not count against the budget here either
+    bt = None if "bundled_with_backend" in _caps(rec) else _budget_term(rec, p, cx, floors, slot.kb_layer)
     if bt is not None:
         contribs.append(bt)
     terms = _affinity(slot, rec, p, cx, bundle_available) + _fits(slot, rec, p, cx)

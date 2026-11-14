@@ -80,7 +80,7 @@ class FactSources(unittest.TestCase):
         for key, e in list(regions.ENTRIES.items()) + list(compliance.ATTEST.items()):
             for s in e["sources"]:
                 self.assertIn(s, SOURCES, (key, s))
-                self.assertEqual(SOURCES[s][2], "2026-11-13", (key, s))
+                self.assertIn(SOURCES[s][2], ("2026-11-13", "2026-11-14"), (key, s))   # verification passes
 
 
 class ReconciledFacts(unittest.TestCase):

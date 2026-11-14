@@ -74,6 +74,8 @@ ENTRIES = {
               "nrt, ord, sin, sjc, syd, yyz: there is no bom (Mumbai) and no other India region. lhr is UK, not EU."),
     "fly_managed_postgres": _e([], ["ams", "fra"], ["dfw", "iad", "lax", "ord", "sjc"], ["fly_regions", "fly_mpg"],
                                "MPG regions per the regions reference: ams, dfw, fra, gru, iad, lax, lhr (UK), nrt, ord, sin, sjc, syd, yyz. No India."),
+    "tiger_cloud": _e(["aws-ap-south-1"], [], ["aws-us-east-1", "aws-us-east-2", "aws-us-west-2"], ["tiger_regions"],
+                      "Tiger Cloud on AWS: Mumbai (ap-south-1), Singapore, Sao Paulo and three US regions per the supported-regions table read 2026-11-14; no EU region confirmed there, so EU fails closed."),
     "neon": _e([], ["aws-eu-central-1"], ["aws-us-east-1", "aws-us-east-2", "aws-us-west-2"], ["neon_regions"],
                "No India region. aws-eu-west-2 London is UK, not EU. Azure regions are deprecated for new projects."),
     "cloudflare": _e(UNKNOWN, UNKNOWN, UNKNOWN, ["cf_dls"],

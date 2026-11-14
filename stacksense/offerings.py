@@ -54,7 +54,7 @@ from .kb import bindings as _bindings
 from .kb import costs as _costs
 
 HYPERSCALERS = ("aws", "azure", "gcp")
-DBAAS_FAMILIES = ("atlas", "aura", "clickhouse_cloud", "cockroach_cloud", "neon", "snowflake", "supabase")
+DBAAS_FAMILIES = ("atlas", "aura", "clickhouse_cloud", "cockroach_cloud", "neon", "snowflake", "supabase", "tiger_cloud")
 PLATFORM_BOUND_FAMILIES = ("cloudflare", "digitalocean", "fly")
 SELF_HOSTED_DEPLOYMENTS = filters.SELF_HOSTED_DEPLOYMENTS
 ONPREM_KINDS = ("onprem", "hybrid_appliance")

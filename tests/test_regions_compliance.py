@@ -58,7 +58,7 @@ class TestSources(unittest.TestCase):
         from stacksense.kb.sources import SOURCES as ALL
         for where, s in self._all_keys():
             self.assertIn(s, ALL, where)
-            self.assertEqual(ALL[s][2], "2026-11-13", (where, s))
+            self.assertIn(ALL[s][2], ("2026-11-13", "2026-11-14"), (where, s))   # verification passes
         for k, (title, url, accessed) in FACT_SOURCES.items():
             self.assertTrue(url.startswith("https://"), k)
             self.assertEqual(accessed, "2026-11-13")

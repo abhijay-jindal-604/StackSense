@@ -205,6 +205,8 @@ ATTEST = {
                  "HIPAA-enabled workspace needs Scale or Enterprise and is not available in Singapore; DPA for all workspaces."),
     "railway": _a("yes", "plan:baa_addon", _U, "yes", _U, ["rf_railway_compliance"], "BAA is a paid add-on with a monthly spend threshold."),
     "fly": _a(_U, _U, _U, _U, _U, ["fly_mpg"], "Compliance and security pages returned 404 on 2026-11-13."),
+    "tiger_cloud": _a("yes", "plan:enterprise", _U, "yes", _U, ["tiger_security", "tiger_trust"],
+                      "SOC 2 Type 2 (report on Scale/Enterprise); HIPAA on the Enterprise plan; GDPR DPA for all customers; PCI DSS and ISO 27001 not stated."),
     "neon": _a(_U, "plan:scale", _U, "yes", "yes", ["rf_neon_security", "rf_neon_hipaa"], "HIPAA self-serve on Scale with BAA."),
     "netlify": _a(_U, _U, _U, "yes", "yes", ["netlify_security"],
                   "SOC 2 Type 2 (report for Enterprise) and ISO 27001 certificate; PCI only as SAQ-A (merchant scope); BAA and DPA not stated on the page."),

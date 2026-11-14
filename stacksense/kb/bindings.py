@@ -89,6 +89,7 @@ BINDINGS = {
     "postgres__gcp": ("gcp", "gcp_cloud_sql"),
     "postgres__fly": ("fly_managed_postgres", "fly"),
     "postgres__neon": ("neon", "neon"),
+    "timescaledb__tiger_cloud": ("tiger_cloud", "tiger_cloud"),
     "postgres__supabase": ("supabase", "supabase"),
 }
 
