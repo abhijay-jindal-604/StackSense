@@ -141,8 +141,9 @@ CATALOGUE: dict[str, Entry] = {
                                         "rbi_localisation (India-only payment data) contradicts "
                                         "data_residency={residency}.", "infeasible"),
     "RESIDENCY_UNVERIFIABLE": _e(C, ["infrastructure.data_residency"],
-                                 "data_residency=other does not name a country; only self-hostable components were "
-                                 "used. Specify the country to check managed regions."),
+                                 "data_residency=other does not name a country; only self-hostable or region-portable "
+                                 "components (VM/container hosts you deploy in your jurisdiction) were used. Confirm "
+                                 "the provider region yourself, or specify the country to check managed regions."),
     "GDPR_TRANSFER": _e(W, ["compliance"],
                         "{name} keeps personal data in {region}, outside the EU; a DPA and Standard Contractual "
                         "Clauses are required."),

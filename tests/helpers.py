@@ -189,7 +189,10 @@ def record_violations(rec, layer, p, off=None):
     if not rec.get("saas"):
         return out      # runs on the application host, which is checked itself
     res = p.effective_residency
-    if res != "none" and not (res in ("india", "eu", "us") and _region_ids(rec["regions"], res)):
+    # option A (author, 14 Nov): residency=other accepts region-portable hosts the customer places in any country
+    portable = res == "other" and layer == "hosting" and rec.get("kind") in ("vm", "k8s", "container", "onprem",
+                                                                              "hybrid_appliance")
+    if res != "none" and not portable and not (res in ("india", "eu", "us") and _region_ids(rec["regions"], res)):
         out.append((RES, f"{rec['name']} has no verified {res} region"))
     for regime in p.compliance:
         if regime == "pci_dss" and layer not in ("backend", "database", "hosting", "payments") and not rec.get("data_at_rest"):

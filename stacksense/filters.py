@@ -25,6 +25,7 @@ Public API
 ``filter_layer(layer, p, **kw) -> tuple[list[dict], list[Rejection]]``   KB candidates of ``layer``
 ``check_offering(off, p) -> Rejection | None`` / ``check_offering_all(off, p)``
 ``viable_offerings(engine_id, p) -> list[dict]``  offerings of an engine that pass every rule
+``region_portable(rec, layer) -> bool`` / ``residency_pass_reason(rec, p, layer=None) -> str | None``
 
 ``hosts`` (backend F7) is the list of surviving hosting records; when omitted it is computed with
 ``filter_layer("hosting", p)``. ``platform`` narrows F7 for a frontend layer to one client platform.
@@ -84,6 +85,12 @@ Rules that need interpretation (stated once, applied everywhere)
   edge, platform logs, host-native git deploys) inherit F4/F5 from the host: they pass when every
   host in ``hosts`` (the chosen hosts that ``supporting.select`` passes, else every surviving host)
   passes the same rule, and fail closed when there is no host.
+* **Residency ``other`` (F4).** No country is named, so no vendor region list can be checked. Region-portable
+  hosting (kinds in ``REGION_PORTABLE_HOST_KINDS``: vm, k8s, container, onprem, hybrid_appliance) passes,
+  because the team deploys the same image in its own jurisdiction; self-hosted-mode records and components
+  that run inside the host pass as for every residency. Managed services pinned to vendor regions (PaaS,
+  static hosts, serverless, BaaS, managed offerings, SaaS) fail closed. ``residency_pass_reason`` gives the
+  plain-language reason for a pass; the profile adds the critical warning ``RESIDENCY_UNVERIFIABLE``.
 * **open_source_only (F6)** does not apply to hosting (infrastructure, per the schema text) or
   payments (no open-source gateway exists). Managed offerings of an open-source engine pass.
 
@@ -115,6 +122,8 @@ RBI_LAYERS = ("database", "payments")
 ONPREM_HOST_KINDS = ("onprem", "hybrid_appliance")
 CLOUD_VM_HOST_KINDS = ("vm", "k8s", "container")
 CONTAINER_HOST_KINDS = ("vm", "k8s", "container", "onprem", "hybrid_appliance")
+# data_residency=other: host kinds the team deploys itself on any provider or server (F4 passes them)
+REGION_PORTABLE_HOST_KINDS = ("vm", "k8s", "container", "onprem", "hybrid_appliance")
 SELF_HOSTED_DEPLOYMENTS = ("self_hosted_cloud_vm", "on_premise", "air_gapped")
 HYPERSCALERS = ("aws", "gcp", "azure")
 CLOUD_NAMES = {"aws": "AWS", "gcp": "Google Cloud", "azure": "Azure"}
@@ -368,8 +377,11 @@ def _f4_cells(rec, p, layer, self_mode):
     if self_mode:
         return None
     if r == "other":
-        return _rej(rec, layer, "F4", _res_fields(p), f"{name} is a managed service and data_residency=other names "
-                    f"no country, so no in-country region can be verified; violates {_residency_text(p)}.",
+        if region_portable(rec, layer):
+            return None
+        return _rej(rec, layer, "F4", _res_fields(p), f"{name} is a managed service pinned to its vendor's regions "
+                    f"and data_residency=other names no country, so no in-country region can be verified "
+                    f"(fail closed); violates {_residency_text(p)}.",
                     _regions.source_keys(_bound(rec)[0] or "") or rec.get("sources", ()), True, residency=r)
     ids, unverified, src = _region_cells(rec, p)
     ids = [i for i in ids if i != "*"]   # '*' is true only for self-hosted mode
@@ -380,6 +392,43 @@ def _f4_cells(rec, p, layer, self_mode):
             if unverified else f"vendor region list verified: {rn} none")
     return _rej(rec, layer, "F4", _res_fields(p), f"{name} has no {rn} region ({fact}); violates "
                 f"{_residency_text(p)}.", src, unverified, residency=r)
+
+
+def region_portable(rec, layer) -> bool:
+    """A hosting record whose kind is in ``REGION_PORTABLE_HOST_KINDS`` (VM, container, Kubernetes, on-premises
+    or appliance): the team deploys the same image on any provider or server, so it can be placed in
+    whatever country an unnamed ``data_residency=other`` means. Offerings and every other kind (PaaS,
+    static hosts, serverless functions, BaaS) are pinned to vendor regions and are not portable."""
+    return (layer == "hosting" and not _is_offering(rec)
+            and rec.get("kind") in REGION_PORTABLE_HOST_KINDS)
+
+
+def residency_pass_reason(rec, p, layer=None) -> str | None:
+    """Plain-language reason why ``rec`` passes F4 under ``data_residency=other`` (None when the residency is
+    not ``other``, when F4 does not apply to ``rec``, or when F4 fails). Feeds explanations and the trace."""
+    layer = layer or rec["layer"]
+    if p.effective_residency != "other":
+        return None
+    name = rec.get("name", rec["id"])
+    if _is_offering(rec):
+        if rec["host"] == "self_hosted" and _f4_cells(rec, p, layer, True) is None:
+            return (f"{name} is self-managed on the team's own host, so it runs in whichever country that "
+                    f"host is deployed; data_residency=other: confirm the host's country.")
+        return None
+    ctx = _ctx(p, layer, None, None, None)
+    if _f4(rec, p, layer, ctx) is not None:
+        return None
+    if region_portable(rec, layer) and handles_personal_data(rec, p, layer):
+        return (f"{name} is a {rec.get('kind')} host and region-portable: the same deployment runs on any "
+                f"provider or server, so deploy it in your jurisdiction; data_residency=other names no country, "
+                f"so confirm the provider region yourself (RESIDENCY_UNVERIFIABLE).")
+    if self_hosted_mode(rec, p):
+        return (f"{name} runs self-hosted under deployment_model={p.deployment}, so its data stays where the "
+                f"team deploys it; data_residency=other: confirm that location is in your jurisdiction.")
+    if handles_personal_data(rec, p, layer) and _runs_inside_host(rec, p):
+        return (f"{name} runs inside the application host, so it inherits the host's location; "
+                f"data_residency=other: deploy that host in your jurisdiction.")
+    return None
 
 
 def _runs_inside_host(rec, p) -> bool:

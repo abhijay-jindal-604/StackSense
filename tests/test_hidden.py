@@ -37,7 +37,6 @@ KNOWN_GAPS: dict[str, str] = {
     "H29": "H29_01: missing LATENCY_AGGRESSIVE warning",
     "H30": "H30_P1: supporting observability changed vs P1 (locality)",
     "H31": "forbidden 'Amazon' in other choice 'Amazon SES' (cloud_preference=none)",
-    "H32": "status infeasible, wanted ok_with_warnings (RESIDENCY_UNVERIFIABLE path)",
     "H36": "supporting layer realtime present although requirements.realtime=false",
 }
 

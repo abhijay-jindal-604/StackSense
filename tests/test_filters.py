@@ -212,6 +212,70 @@ class F4Residency(unittest.TestCase):
         self.assertIsNone(rule("postgres", po))
         self.assertIsNone(rule("onprem_compose", po))
 
+    def test_other_residency_allows_region_portable_hosts(self):
+        p = P(infrastructure__data_residency="other")          # managed_cloud
+        portable = [h for h in kb.by_layer("hosting") if h.get("kind") in ("vm", "k8s", "container")]
+        self.assertTrue(portable)
+        for h in portable:
+            self.assertIsNone(rule(h["id"], p), h["id"])
+            why = filters.residency_pass_reason(h, p, "hosting")
+            self.assertIn("region-portable", why, h["id"])
+            self.assertIn("deploy it in your jurisdiction", why)
+            self.assertIn("RESIDENCY_UNVERIFIABLE", why)
+        for rid in ("hetzner_compose", "do_droplets_compose", "google_compute_engine", "aws_ecs_fargate"):
+            self.assertTrue(filters.region_portable(R(rid), "hosting"), rid)
+
+    def test_other_residency_rejects_region_pinned_managed(self):
+        p = P(infrastructure__data_residency="other")
+        pinned = [h for h in kb.by_layer("hosting") if h.get("status") == "maintained"
+                  and h.get("kind") in ("paas", "static_host", "serverless_fn")
+                  and filters.handles_personal_data(h, p, "hosting", False)]   # GitHub Pages: static only
+        self.assertTrue(pinned)
+        for h in pinned:
+            r = check(h, p, static_only=False)
+            self.assertIsNotNone(r, h["id"])
+            self.assertEqual((r.rule, r.unverified), ("F4", True), h["id"])
+            self.assertIn("pinned to its vendor's regions", r.reason_text)
+            self.assertIn("fail closed", r.reason_text)
+            self.assertIsNone(filters.residency_pass_reason(h, p, "hosting"))
+        for rid in ("postgres", "mongodb", "dynamodb", "firestore"):   # managed offerings / SaaS databases
+            self.assertEqual(rule(rid, p), "F4", rid)
+        for rid in ("amazon_ses", "sentry", "auth0", "upstash_redis"):  # region-pinned SaaS services
+            self.assertEqual(rule(rid, p), "F4", rid)
+        for off in kb.OFFERINGS:                                       # every managed offering
+            if off["host"] != "self_hosted":
+                r = check_offering(off, p)
+                self.assertIsNotNone(r, off["id"])
+                self.assertIn(r.rule, ("F1", "F4"), off["id"])
+        # an unknown host kind is not portable: fails closed
+        self.assertFalse(filters.region_portable(dict(R("hetzner_compose"), kind="mystery"), "hosting"))
+        self.assertFalse(filters.region_portable(R("hetzner_compose"), "database"))
+
+    def test_other_residency_in_host_and_self_hosted_components(self):
+        p = P(infrastructure__data_residency="other")
+        for rid in ("sqlite", "valkey_self", "keycloak", "grafana_prometheus_loki", "pocketbase"):
+            self.assertIsNone(rule(rid, p), rid)
+        self.assertIn("inside the application host", filters.residency_pass_reason(R("sqlite"), p))
+        ps = P(infrastructure__data_residency="other", infrastructure__deployment_model="self_hosted_cloud_vm")
+        self.assertIsNone(rule("postgres", ps))
+        self.assertIn("self-hosted", filters.residency_pass_reason(R("postgres"), ps))
+        self_off = next(o for o in kb.OFFERINGS if o["engine"] == "postgres" and o["host"] == "self_hosted")
+        self.assertIn("self-managed", filters.residency_pass_reason(self_off, p, "database"))
+
+    def test_portability_only_changes_other_residency(self):
+        for res in ("india", "eu", "us"):
+            p = P(infrastructure__data_residency=res)
+            self.assertIsNone(filters.residency_pass_reason(R("hetzner_compose"), p, "hosting"), res)
+            for h in sorted(kb.by_layer("hosting"), key=lambda r: r["id"]):
+                r = check(h, p, static_only=False)
+                if r is not None and r.rule == "F4":
+                    self.assertNotIn("region-portable", r.reason_text)
+                    self.assertNotIn("pinned to its vendor", r.reason_text)
+        # Hetzner has no India region: portability does not override a named country
+        self.assertEqual(rule("hetzner_compose", P(infrastructure__data_residency="india")), "F4")
+        self.assertIsNone(rule("hetzner_compose", P(infrastructure__data_residency="none")))
+        self.assertIsNone(filters.residency_pass_reason(R("hetzner_compose"), P(), "hosting"))
+
     def test_rbi_implies_india(self):
         p = P("P3", compliance=["rbi_localisation"])
         self.assertEqual(p.effective_residency, "india")
@@ -451,6 +515,10 @@ class IndependentRecheck(unittest.TestCase):
                 kept, _ = filter_layer(layer, p)
                 for rec in kept:
                     v = helpers.record_violations(rec, layer, p)
+                    if p.effective_residency == "other" and filters.region_portable(rec, layer):
+                        # plan 6.3 / H32: region-portable hosts pass residency=other (critical
+                        # RESIDENCY_UNVERIFIABLE declares it); the helper predates that rule
+                        v = [x for x in v if x[0] != "infrastructure.data_residency"]
                     self.assertEqual(v, [], f"{label} {layer} {rec['id']}")
 
     def test_viable_offerings_pass_independent_check(self):

@@ -324,8 +324,9 @@ def derive(v, signals: Signals = (), existing: ExistingReport | None = None) -> 
                                   ["compliance", "infrastructure.data_residency"]))
     if residency == "other":
         warns.append(_warning("RESIDENCY_UNVERIFIABLE", "critical",
-                              "data_residency=other does not name a country; only self-hostable components "
-                              "were used. Specify the country to check managed regions.",
+                              "data_residency=other does not name a country; only self-hostable or region-portable "
+                              "components (VM/container hosts you deploy in your jurisdiction) were used. Confirm "
+                              "the provider region yourself, or specify the country to check managed regions.",
                               ["infrastructure.data_residency"]))
     gdpr_pref = "gdpr" in compliance and effective == "none"
     if gdpr_pref:

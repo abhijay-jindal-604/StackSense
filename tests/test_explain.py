@@ -220,8 +220,8 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertIsNotNone(r["decision_trace"]["combinations"])
 
     def test_no_compatible_stack_names_blocker(self):
-        # finding 8: residency=other is named as the blocking hard filter
-        r = engine.recommend(load(EDGE / "H32_residency_other.json"))
+        # finding 8: residency=other is named as the blocking hard filter (P4: managed cloud, rbi, no cloud)
+        r = run("P4", infrastructure__data_residency="other", infrastructure__cloud_preference="none")
         w = next(w for w in r["warnings"] if w["code"] == engine.NO_COMBINATION_CODE)
         self.assertEqual(w["fields"][0], "infrastructure.data_residency")
         self.assertIn("infrastructure.data_residency=other", w["message"])
