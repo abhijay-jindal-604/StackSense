@@ -342,6 +342,12 @@ class EffectTests(unittest.TestCase):
         self.assertIn("infrastructure.data_residency", {n["field"] for n in r["nearest_feasible"]})
         self.assertEqual(sum(1 for w in r["warnings"] if w["code"] == "RESIDENCY_COMPLIANCE_CONFLICT"), 1)
 
+    def test_rbi_with_other_residency_infeasible(self):
+        # "other" names a country outside the list, so it cannot be India
+        r = engine.recommend(perturb("P4", infrastructure__data_residency="other"))
+        self.assertEqual(r["status"], "infeasible")
+        self.assertEqual(sum(1 for w in r["warnings"] if w["code"] == "RESIDENCY_COMPLIANCE_CONFLICT"), 1)
+
     def test_merge_skips_codes_emitted_elsewhere(self):
         c = conflicts.conflict("DPDP_NOTES")
         self.assertEqual(conflicts.merge([{"code": "DPDP_NOTES"}], [c]), [])

@@ -407,7 +407,7 @@ def detect(p, v=None) -> list[Conflict]:
     if "rbi_localisation" in comp and residency == "none":
         add(conflict("RBI_IMPLIES_INDIA", assumption="infrastructure.data_residency treated as india because "
                      "compliance includes rbi_localisation (payment data must be stored only in India)."))
-    if "rbi_localisation" in comp and residency in ("eu", "us"):
+    if "rbi_localisation" in comp and residency in ("eu", "us", "other"):
         add(conflict("RESIDENCY_COMPLIANCE_CONFLICT", residency=residency))
     if residency == "other":
         add(conflict("RESIDENCY_UNVERIFIABLE"))

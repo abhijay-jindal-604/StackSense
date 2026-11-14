@@ -316,7 +316,7 @@ def derive(v, signals: Signals = (), existing: ExistingReport | None = None) -> 
                                   "rbi_localisation requires payment data to be stored only in India; "
                                   "data_residency treated as india.",
                                   ["compliance", "infrastructure.data_residency"]))
-        elif residency in ("eu", "us"):
+        elif residency in ("eu", "us", "other"):   # other = a country not in the list, so not India
             infeasible = True
             warns.append(_warning("RESIDENCY_COMPLIANCE_CONFLICT", "critical",
                                   f"rbi_localisation (India-only payment data) contradicts "
