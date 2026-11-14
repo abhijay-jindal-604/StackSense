@@ -345,8 +345,8 @@ def _f3b(rec, p, layer, ctx):
             return _rej(rec, layer, "F3b", (F_CLOUD,), f"{rec['name']} needs a {CLOUD_NAMES[rec['host']]} "
                         f"account; cloud_preference=none.", rec.get("sources", ()), cloud=rec["host"])
         return None
-    if not (layer in INFRA_LAYERS or layer == "backend"):
-        return None
+    if layer.startswith("frontend"):
+        return None   # none = no hyperscaler account at all: every service layer, not only infrastructure
     aff = [c for c in (rec.get("cloud_affinity") or [])]
     if aff and all(c in HYPERSCALERS for c in aff):
         clouds = " or ".join(CLOUD_NAMES[c] for c in aff)

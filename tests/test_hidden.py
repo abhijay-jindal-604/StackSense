@@ -33,7 +33,6 @@ KNOWN_GAPS: dict[str, str] = {
     "H17": "missing LATENCY_AGGRESSIVE warning",
     "H28": "backend chose Payload CMS, wanted Shopify",
     "H30": "H30_P1: supporting observability changed vs P1 (locality)",
-    "H31": "forbidden 'Amazon' in other choice 'Amazon SES' (cloud_preference=none)",
 }
 
 
