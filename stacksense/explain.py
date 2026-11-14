@@ -60,7 +60,7 @@ SYNERGY_LAYERS = {
     "same_cloud": ("database", "hosting"), "shared_language": ("frontend", "backend"),
     "bff_split": ("frontend", "backend"), "managed_realtime": ("hosting",),
     "language_count": ("backend",), "one_codebase": ("frontend",),
-    "priced_once": ("database", "hosting"),
+    "priced_once": ("database", "hosting"), "dotnet_sqlserver": ("backend", "database"),
 }
 
 
