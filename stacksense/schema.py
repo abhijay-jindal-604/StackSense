@@ -89,7 +89,7 @@ _f("scale.users_at_launch", "integer", required=True, minimum=0, group="Scale", 
    affects=["hosting", "cost"])
 _f("scale.users_12_months", "integer", required=True, minimum=0, group="Scale", label="Users after 12 months",
    why="Primary sizing input. We size for 12-month load, not launch load, to avoid an early re-platform.",
-   affects=["hosting", "database", "supporting", "cost", "architecture_style"])
+   affects=["hosting", "database", "frontend", "supporting", "cost", "architecture_style"])
 _f("scale.peak_concurrent_users", "integer", minimum=0, group="Scale", label="Peak concurrent users",
    why="Drives connection counts (WebSockets, DB pools) and compute sizing. If absent we estimate "
        "5% of 12-month users (typical DAU/MAU x peak-hour concentration) and record it.",
