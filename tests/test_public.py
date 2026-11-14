@@ -125,7 +125,6 @@ class P1Tests(_Base):
     def test_frontend_primary(self):
         self.assertEqual(self.layer("frontend")["kb_id"], "astro")
 
-    @unittest.expectedFailure
     def test_hosting_primary(self):
         # Calibration gap: Netlify (18.94) outscores Cloudflare Pages (18.0) on timeline_fit dev_velocity.
         self.assertEqual(ids(self.layer("hosting")), ["cloudflare_pages"])

@@ -157,7 +157,12 @@ class ServerTest(unittest.TestCase):
         try:
             s.sendall(f"POST /api/recommend HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
                       f"Content-Length: {MAX_BYTES + 1}\r\n\r\n".encode())
-            data = s.recv(4096)
+            data = b""
+            while b'"error"' not in data:  # headers and body may arrive in separate segments
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
         finally:
             s.close()
         self.assertTrue(data.startswith(b"HTTP/1.1 413"), data[:60])

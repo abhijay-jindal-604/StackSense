@@ -83,13 +83,98 @@ SMS_PER_USER_MONTH = 2
 SMS_RATE_INDIA = (0.0025, 0.004)
 SMS_RATE_OTHER = (0.05, 0.08)
 
+# Egress profiles (plan 7 "Egress"): included GB/month by size class ("*" = any size; xl uses l) and
+# the overage rate (min, max) in USD/GB. Read 14 Nov 2026 from the pricing pages named in ``sources``
+# (where a vendor has no pricing-page key in the registry, the closest existing key is used and the
+# note says so). "unmetered" profiles never bill egress.
+UNMETERED = float("inf")
+EGRESS_PROFILES = {
+    "hyperscaler": {"included": {"*": EGRESS_FREE_GB_HYPERSCALER}, "rate": EGRESS_RATE_GB,
+                    "note": "first 100 GB/month free, then USD 0.09-0.11/GB (internet data transfer out)"},
+    "cloudflare": {"included": {"*": UNMETERED}, "rate": (0.0, 0.0),
+                   "note": "Cloudflare Pages, Workers and R2 charge no egress fees"},
+    "vercel": {"included": {"xs": 100, "*": 1000}, "rate": (0.15, 0.15),
+               "note": "Hobby 100 GB, Pro 1 TB Fast Data Transfer included, then from USD 0.15/GB"},
+    "netlify": {"included": {"xs": 15, "*": 150}, "rate": (0.13, 0.13),
+                "note": "bandwidth uses 20 credits/GB: Free 300 credits (~15 GB), Pro 3,000 credits (~150 GB); "
+                        "extra credits USD 10 per 1,500 (~USD 0.13/GB)"},
+    "supabase": {"included": {"xs": 5, "*": 250}, "rate": (0.09, 0.09),
+                 "note": "Free 5 GB, Pro 250 GB egress included, then USD 0.09/GB"},
+    "do_app_platform": {"included": {"xs": 50, "s": 100, "m": 400, "l": 900}, "rate": (0.02, 0.02),
+                        "note": "App Platform pools 50-900 GiB/month per container size at team level, then "
+                                "USD 0.02/GiB"},
+    "digitalocean": {"included": {"xs": 500, "s": 2000, "m": 4000, "l": 10000}, "rate": (0.01, 0.01),
+                     "note": "Droplets include outbound transfer from 500 GiB/month (pooled), then USD 0.01/GiB"},
+    "do_spaces": {"included": {"*": 1024}, "rate": (0.01, 0.01),
+                  "note": "the Spaces subscription includes 1 TiB outbound, then USD 0.01/GiB"},
+    "render": {"included": {"xs": 5, "s": 25, "m": 25, "l": 1000}, "rate": (0.15, 0.15),
+               "note": "Hobby 5 GB, Pro 25 GB, Scale 1 TB included, then USD 0.15/GB (Render outbound-bandwidth docs)"},
+    "fly": {"included": {"*": 0}, "rate": (0.02, 0.12),
+            "note": "no free allowance; USD 0.02/GB North America and Europe up to USD 0.12/GB India"},
+    "railway": {"included": {"*": 0}, "rate": (0.05, 0.05), "note": "network egress USD 0.05/GB"},
+    "hetzner": {"included": {"*": 1000}, "rate": (0.0012, 0.0012),
+                "note": "at least 1 TB/month included per server (20 TB in EU locations), then about EUR 1/TB"},
+    "shopify": {"included": {"*": UNMETERED}, "rate": (0.0, 0.0), "note": "bandwidth is included in the Shopify plan"},
+    "github_pages": {"included": {"*": UNMETERED}, "rate": (0.0, 0.0),
+                     "note": "free with a soft limit of 100 GB/month; above it GitHub may ask the site to move"},
+    "self": {"included": {"*": UNMETERED}, "rate": (0.0, 0.0),
+             "note": "served over the organisation's own uplink, counted in the power/colocation estimate"},
+}
+# Record ids with their own egress terms (checked before the provider family).
+EGRESS_PROFILE_BY_ID = {"do_app_platform": "do_app_platform", "do_spaces": "do_spaces", "cloudflare_r2": "cloudflare",
+                        "github_pages": "github_pages", "shopify_hosted": "shopify", "shopify": "shopify",
+                        "supabase_storage": "supabase"}
+EGRESS_PROFILE_BY_PROVIDER = {"aws": "hyperscaler", "azure": "hyperscaler", "gcp": "hyperscaler",
+                              "cloudflare": "cloudflare", "vercel": "vercel", "netlify": "netlify",
+                              "supabase": "supabase", "digitalocean": "digitalocean", "render": "render",
+                              "fly": "fly", "railway": "railway", "hetzner": "hetzner"}
+# Pricing source key per provider family (egress, object storage, compliance overhead). Keys marked
+# "closest" are not a bandwidth price page: the registry has no better key for that vendor.
+PROVIDER_PRICING_SOURCE = {
+    "aws": ("aws_pricing",), "azure": ("azure_appservice_pricing",),          # azure: closest
+    "gcp": ("gcp_run_pricing",), "cloudflare": ("cloudflare_pricing",), "vercel": ("vercel_pricing",),
+    "netlify": ("netlify_pricing",), "supabase": ("supabase_pricing",), "digitalocean": ("do_pricing",),
+    "render": ("render_docs",), "fly": ("fly_pricing",), "railway": ("railway_docs",),  # render/railway: closest
+    "hetzner": ("hetzner_docs",), "shopify": ("shopify_pricing",), "github_pages": ("github_pages",),
+}
+EGRESS_PROFILE_SOURCE = {"do_app_platform": ("do_app_platform", "do_pricing"), "do_spaces": ("do_pricing",),
+                         "github_pages": ("github_pages",), "shopify": ("shopify_pricing",)}
+# A project is media-heavy (egress x EGRESS_MEDIA_FACTOR) when it stores files and the stored media per
+# user is at least half the profile's media default (DATA_GB_PER_USER_MEDIA = 50 MB/user).
+MEDIA_HEAVY_GB_PER_USER = DATA_GB_PER_USER_MEDIA / 2
+
+# Compliance overhead source keys: the regime reference (the overhead itself is priced from the host
+# provider's pricing key, added at estimate time).
+COMPLIANCE_OVERHEAD_SOURCES = {
+    "pci_dss": ("pci_saq",), "hipaa": ("hhs_hipaa_cloud",), "gdpr": ("gdpr_text",), "dpdp": ("dpdp_act",),
+    "rbi_localisation": ("rbi_localisation",), "iso27001": (), "soc2": (),
+}
+COMPLIANCE_PROVIDER_SOURCES = {
+    "iso27001": {"aws": ("aws_iso_scope",), "azure": ("azure_iso_offering",), "gcp": ("rf_gcp_iso",)},
+    "soc2": {"aws": ("dbs_aws_soc_scope",), "azure": ("azure_audit_scope",), "gcp": ("gcp_services_in_scope",)},
+}
+COMPLIANCE_OVERHEAD_TEXT = {
+    "pci_dss": "WAF, key management, log retention and vulnerability scanning",
+    "hipaa": "BAA-tier plans, audit logging and encrypted backups",
+    "iso27001": "log retention, backup and vulnerability scanning (audit fees excluded)",
+    "soc2": "log retention, backup and vulnerability scanning (audit fees excluded)",
+    "rbi_localisation": "no extra infrastructure: the India-region uplift is already inside the bands",
+    "gdpr": "data-subject request tooling and EU log storage",
+    "dpdp": "consent records and breach-notification tooling",
+}
+# Supporting services that already deliver part of the PCI/HIPAA/ISO/SOC tooling (their lines are
+# credited against the largest such overhead line so nothing is counted twice).
+COMPLIANCE_TOOLING_SUBS = ("waf", "secrets")
+COMPLIANCE_TOOLING_REGIMES = ("pci_dss", "hipaa", "iso27001", "soc2")
+
 # Payment fees are a percentage of transaction value, not infrastructure: excluded with an assumption.
 PAYMENT_FEE_NOTE = {"india_domestic_pct": 2.0, "stripe_us": "2.9% + USD 0.30"}
 
 # On-premise / air-gapped: cloud bill 0; amortised hardware + power per node-month.
 ONPREM_SERVER_MONTH = (150, 400)   # 4-year amortisation
 ONPREM_POWER_COLO_MONTH = (50, 150)
-ONPREM_NODES = {"xs": 3, "s": 3, "m": (5, 8), "l": 12}
+ONPREM_NODES = {"xs": (3, 3), "s": (3, 3), "m": (5, 8), "l": (12, 12)}   # xl: l x XL_FROM_L_FACTOR
+ONPREM_AMORTISATION_YEARS = 4
 
 # Budget verdict and fallback rules.
 BUDGET_HEADROOM_FACTOR = 10        # BUDGET_HEADROOM when budget >= 10 x cost.max
