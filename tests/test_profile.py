@@ -328,11 +328,11 @@ class Stubs(unittest.TestCase):
         self.assertIn("ledger", [s.id for s in extract("double-entry ledger")])
         self.assertEqual(extract(None), ())
 
-    def test_existing_stub(self):
+    def test_existing_analyse(self):
         rep = analyse(["Microsoft 365", "On-prem SQL Server 2019"])
         self.assertIsInstance(rep, ExistingReport)
-        self.assertEqual(rep.matches, ())
-        self.assertEqual(rep.unmatched, ("Microsoft 365", "On-prem SQL Server 2019"))
+        self.assertEqual([m.pattern_id for m in rep.matches], ["microsoft_365", "sqlserver", "on_prem"])
+        self.assertEqual(rep.unmatched, ())
         self.assertEqual(analyse([]).unmatched, ())
 
 

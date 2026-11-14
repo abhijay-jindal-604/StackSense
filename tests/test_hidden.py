@@ -27,8 +27,6 @@ CORE = ("frontend", "backend", "database", "hosting")
 
 # id -> one-line reason from the real failing assertion (coordinator re-syncs after concurrent work).
 KNOWN_GAPS: dict[str, str] = {
-    "H09": "missing EOL_EXISTING_SYSTEM warnings (existing.py, Phase 4)",
-    "H10": "missing EOL_EXISTING_SYSTEM warnings (existing.py, Phase 4)",
     "H12": "missing ONPREM_NO_SAAS warning (status ok)",
     "H14": "backend chose NestJS (Node.js 26 LTS), wanted Laravel",
     "H15": "neither SKILL_MISMATCH nor SKILL_GAP_NO_LEARNING present",

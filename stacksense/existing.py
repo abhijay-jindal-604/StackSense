@@ -4,8 +4,7 @@
 the patterns in ``kb/existing_patterns.py`` (plan section 6.6) and returns an :class:`ExistingReport`.
 ``today_anchor`` defaults to the KB date constant (``kb.eol.KB_DATE``), never the system clock.
 
-STATUS: interface only. The pattern table is filled in Phase 4; until then every system is returned
-in ``unmatched`` (input order, which validate() already de-duplicated). Later stages turn each
+Unmatched systems (input order) are returned in ``unmatched``; the engine turns each
 unmatched system into an ``EXISTING_SYSTEM_UNRECOGNISED`` info warning and a generic integration
 note, so nothing is ignored silently.
 """
@@ -13,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+
+from .kb import eol, existing_patterns
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,30 @@ class ExistingReport:
 
 
 def analyse(systems, today_anchor: date | None = None) -> ExistingReport:
-    """Classify existing systems. Placeholder until Phase 4: everything is ``unmatched``."""
-    items = tuple(str(s) for s in (systems or ()) if isinstance(s, str) and s.strip())
-    return ExistingReport(matches=(), unmatched=items)
+    """Classify existing systems (deterministic; the clock is never read).
+
+    Strings are processed in input order. Every pattern hit becomes one :class:`ExistingMatch`
+    (pattern-table order within a string), so "On-prem SQL Server 2019" yields a ``sqlserver`` match
+    (version 2019, EOL verdict) and an ``on_prem`` infrastructure match. Both keep the same ``raw``.
+    A string with no hit goes to ``unmatched``. The EOL verdict is judged on ``today_anchor``
+    (default ``kb.eol.KB_DATE``); the verdict dict carries that date under ``anchor``.
+    """
+    anchor = today_anchor or eol.KB_DATE
+    matches: list[ExistingMatch] = []
+    unmatched: list[str] = []
+    for raw in (systems or ()):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        hits = existing_patterns.match(raw)
+        if not hits:
+            unmatched.append(raw)
+            continue
+        for h in hits:
+            pat = existing_patterns.BY_ID[h.pattern_id]
+            args = existing_patterns.eol_args(h)
+            verdict = eol.verdict(args[0], args[1], anchor=anchor) if args else None
+            note = f"{raw}: {pat.note}" if pat.note else ""
+            matches.append(ExistingMatch(raw=raw, pattern_id=h.pattern_id, family=h.family, kind=h.kind,
+                                         version=h.version, reuse_targets=tuple(pat.reuse),
+                                         integration_note=note, eol=verdict))
+    return ExistingReport(matches=tuple(matches), unmatched=tuple(unmatched))
