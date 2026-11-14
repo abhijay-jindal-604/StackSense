@@ -9,6 +9,7 @@ layer. Status, cost band and warning codes are compared too. Used by ``cli diff`
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Iterable, Mapping
 
 CORE_LAYERS = ("frontend", "backend", "database", "hosting")
@@ -78,8 +79,8 @@ def _cost(output: Mapping) -> dict | None:
     return {"min": c.get("min"), "max": c.get("max")}
 
 
-def _codes(output: Mapping) -> list[str]:
-    return sorted({w.get("code") for w in (output.get("warnings") or []) if isinstance(w, Mapping)})
+def _codes(output: Mapping) -> Counter:
+    return Counter(str(w.get("code")) for w in (output.get("warnings") or []) if isinstance(w, Mapping))
 
 
 def diff(a: Mapping, b: Mapping, *, scenario_a: Mapping | None = None,
@@ -105,7 +106,8 @@ def diff(a: Mapping, b: Mapping, *, scenario_a: Mapping | None = None,
         "changed_layers": [k for k, v in layers.items() if v["changed"]],
         "cost": {"from": cost_a, "to": cost_b, "changed": cost_a != cost_b,
                  "delta_min": _delta(cost_a, cost_b, "min"), "delta_max": _delta(cost_a, cost_b, "max")},
-        "warnings": {"added": sorted(set(cb) - set(ca)), "removed": sorted(set(ca) - set(cb))},
+        # a code listed once per added count (two new SUPPORTING_GAPs -> listed twice)
+        "warnings": {"added": sorted((cb - ca).elements()), "removed": sorted((ca - cb).elements())},
     }
     if fields is not None:
         out["changed_fields"] = fields

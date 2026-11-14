@@ -329,9 +329,15 @@ class OtherContributions(unittest.TestCase):
         p = P()  # marketplace
         self.assertEqual(value(rec(best_for=["marketplace"]), p, "type_affinity"), 3)
         self.assertEqual(value(rec(avoid_for=["marketplace"]), p, "type_affinity"), -3)
-        self.assertEqual(value(rec(lock_in=3), P(infrastructure__lock_in_tolerance="low"), "lock_in"), -4.5)
+        self.assertEqual(value(rec(lock_in=3), P(infrastructure__lock_in_tolerance="low"), "lock_in"),
+                         3 * W["lock_in_factor"]["low"])
         self.assertEqual(value(rec(lock_in=3), p, "lock_in"), -1.5)
         self.assertEqual(value(rec(lock_in=3), P(infrastructure__lock_in_tolerance="high"), "lock_in"), 0)
+
+    def test_growth_penalises_baas_backend(self):
+        p = P(team__size=3, team__growth_12_months=15)
+        self.assertEqual(value(rec(layer="backend", kind="baas", languages=[]), p, "growth_fit"), W["growth_baas"])
+        self.assertEqual(value(rec(layer="backend", kind="baas", languages=[]), P(team__size=3), "growth_fit"), 0)
 
     def test_reuse(self):
         r = rec(id="t_dotnet", languages=["csharp"])
@@ -342,7 +348,7 @@ class OtherContributions(unittest.TestCase):
                                                     "sqlserver"),))
         self.assertEqual(value(r, P(existing=eco), "reuse"), 2)
         lic = P(existing=eco, infrastructure__existing_licences=["microsoft_enterprise"])
-        self.assertEqual(value(r, lic, "reuse"), 3.5)
+        self.assertEqual(value(r, lic, "reuse"), W["reuse_ecosystem"] + W["reuse_licence"])
         c = contrib(r, lic).get("reuse")
         self.assertIn("On-prem SQL Server 2019", c.reason)
         self.assertEqual(value(r, P(), "reuse"), 0)  # p.existing empty today
@@ -435,7 +441,7 @@ class OtherContributions(unittest.TestCase):
         self.assertEqual(value(rec(layer="database", kind="graph"), P(requirements__data_shape="graph",
                                                                      requirements__payments=False,
                                                                      requirements__consistency="eventual"),
-                               "data_fit"), 4)
+                               "data_fit"), W["data_shape_match"] + W["data_shape_explicit"])
         self.assertEqual(value(pg, p3, "gdpr_pref"), 2)
         self.assertEqual(value(pg, P(), "gdpr_pref"), 0)
 

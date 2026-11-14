@@ -54,6 +54,12 @@ class DiffTests(unittest.TestCase):
         self.assertTrue(any(l.startswith("hosting: ") and "-> Somewhere else" in l for l in lines))
         self.assertTrue(any(l.startswith("status: ") and "->" in l for l in lines))
 
+    def test_repeated_warning_code_counts(self):
+        b = copy.deepcopy(self.out1)
+        b["warnings"] = list(b["warnings"]) + [{"code": "SUPPORTING_GAP", "severity": "warning", "message": "x",
+                                                 "fields": []}] * 2
+        self.assertEqual(diff.diff(self.out1, b)["warnings"]["added"], ["SUPPORTING_GAP", "SUPPORTING_GAP"])
+
     def test_changed_fields_flatten(self):
         self.assertEqual(diff.changed_fields({"a": {"b": 1, "c": [1]}}, {"a": {"b": 2, "c": [1], "d": 0}}),
                          ["a.b", "a.d"])

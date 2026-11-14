@@ -72,11 +72,11 @@ W: dict[str, Any] = {
     # 7 type_affinity
     "type_best": 3, "type_avoid": -3,
     # 8 reuse
-    "reuse_exact": 4, "reuse_ecosystem": 2, "reuse_licence": 1.5,
+    "reuse_exact": 4, "reuse_ecosystem": 2, "reuse_licence": 3,
     # 9 lock_in: no penalty for a product the organisation already runs (exact, non-EOL reuse)
     "lock_in_reuse_waived": True,
     # 9 lock_in
-    "lock_in_factor": {"low": -1.5, "medium": -0.5, "high": 0},
+    "lock_in_factor": {"low": -2.5, "medium": -0.5, "high": 0},   # low: an explicit user statement outweighs one synergy
     # 10 availability_fit
     "availability_below": -5, "availability_no_redundancy": -5, "availability_overbuilt": -1,
     # 11 latency_fit
@@ -92,11 +92,11 @@ W: dict[str, Any] = {
     # 15 geo_fit
     "geo_wide_good": 2, "geo_wide_bad": -2, "geo_local_region": 1,
     # 16 data_fit
-    "data_shape_match": 4, "data_non_acid_strong": -4, "data_rls": 2,
+    "data_shape_match": 4, "data_shape_explicit": 3, "data_non_acid_strong": -4, "data_rls": 2,
     # 17 gdpr_pref
     "gdpr_eu_region": 2,
     # 18 growth_fit
-    "growth_ratio": 2, "growth_min": 10, "growth_maint_factor": 1, "growth_typed": 1,
+    "growth_ratio": 2, "growth_min": 10, "growth_maint_factor": 1, "growth_typed": 1, "growth_baas": -2,
     # 19 device_fit
     "device": {"native": 2, "cross_compiled": 1, "cross_js": -0.5, "webview": -1.5, "desktop_shell": -3},
     # 20 security_fit
@@ -1120,6 +1120,9 @@ def _data(tech, p, ctx):
         fields.append("requirements.data_shape")
         if shape_in == "auto":
             fields.append("project.type")
+        elif shape_in != "relational":
+            v += W["data_shape_explicit"]   # the user stated a specialised shape; an inferred one weighs less
+            why.append("stated explicitly, not inferred")
     if p.consistency == "strong" and not _has(tech, "acid"):
         v += W["data_non_acid_strong"]
         cin = val(p, "requirements.consistency", "auto")
@@ -1156,11 +1159,17 @@ def _gdpr(tech, p, ctx):
 
 # ------------------------------------------------------------------ 18 growth_fit
 def _growth(tech, p, ctx):
-    if ctx.layer not in CODE_LAYERS or not tech.get("languages"):
+    if ctx.layer not in CODE_LAYERS:
         return None
     size = val(p, "team.size", 1) or 1
     growth = val(p, "team.growth_12_months")
     if growth is None or growth < W["growth_ratio"] * size or growth < W["growth_min"]:
+        return None
+    if tech.get("kind") == "baas" and ctx.layer == "backend" and W["growth_baas"]:
+        return W["growth_baas"], ("team.growth_12_months", "team.size"), (
+            f"team.growth_12_months={fmt(growth)} from team.size={fmt(size)}: a BaaS keeps business logic in "
+            f"vendor rules and functions, which a larger team outgrows.")
+    if not tech.get("languages"):
         return None
     m = _attr(tech, "maintainability")
     v = W["growth_maint_factor"] * (m - 3)

@@ -31,6 +31,7 @@ SIZE_DATA_GB_MAX: tuple[float, ...] = (5, 100, 1_000, 10_000)
 
 PEAK_SHARE = 0.05                 # peak concurrent = 5% of 12-month users
 RPS_PER_CONCURRENT = 0.2          # one request per active user every 5 s
+SIZE_RPS_MAX: tuple[int, ...] = SIZE_PEAK_MAX  # a tier sized for N concurrent sessions serves about N short requests/s
 REALTIME_MSGS_PER_CONCURRENT = 1.0
 DATA_GB_PER_USER = 0.002          # 2 MB per user
 DATA_GB_PER_USER_MEDIA = 0.05     # 50 MB per user when file_media_storage
@@ -249,9 +250,15 @@ def derive(v, signals: Signals = (), existing: ExistingReport | None = None) -> 
     s_users = size_class(users, SIZE_USERS_MAX)
     s_peak = size_class(peak, SIZE_PEAK_MAX)
     s_data = size_class(data_gb, SIZE_DATA_GB_MAX)
+    # an explicit scale.peak_rps sizes by request rate too (SIZE_RPS_MAX); an estimated rate is 0.2 x peak
+    # concurrent, so it can never raise the class and is not used
+    rps_given = p.get("scale.peak_rps") is not None
+    s_rps = size_class(rps, SIZE_RPS_MAX) if rps_given else s_peak
+    s_peak = larger_class(s_peak, s_rps)
     size = larger_class(s_users, s_peak, s_data)
+    rps_txt = f", peak {_n(rps)} requests/s -> {s_rps}" if rps_given else ""
     asm.append(f"Size class {size}: the largest of users {_n(users)} -> {s_users}, peak concurrent "
-               f"{_n(peak)} -> {s_peak}, data {_n(data_gb)} GB -> {s_data}.")
+               f"{_n(peak)}{rps_txt} -> {s_peak}, data {_n(data_gb)} GB -> {s_data}.")
 
     # ---- shape -------------------------------------------------------
     platforms = list(p["project.platforms"])

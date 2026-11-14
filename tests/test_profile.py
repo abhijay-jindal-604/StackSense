@@ -215,6 +215,20 @@ class Formulas(unittest.TestCase):
         self.assertEqual(prof(r, (Signal("recommendation", "recommend", "data_shape=graph"),)).data_shape, "document")
 
 
+class RequestRateSizing(unittest.TestCase):
+    def test_explicit_peak_rps_raises_size_estimate_does_not(self):
+        base = load("P2")
+        p0 = prof(base)
+        raw = copy.deepcopy(base)
+        raw.setdefault("scale", {})["peak_rps"] = 5000
+        p1 = prof(raw)
+        self.assertEqual(p1.size, "m")
+        self.assertNotEqual(p0.size, p1.size)
+        self.assertTrue(has_asm(p1, "5,000 requests/s"))
+        raw["scale"]["peak_rps"] = 10        # a low explicit rate never lowers the class
+        self.assertEqual(prof(raw).size, p0.size)
+
+
 class Residency(unittest.TestCase):
     def test_rbi_implies_india(self):
         r = copy.deepcopy(load("P4"))
