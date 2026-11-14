@@ -34,7 +34,7 @@ Pure and deterministic: no clock, no randomness, every set iterated sorted, ties
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
 from . import filters, kb
@@ -71,7 +71,16 @@ SW: dict[str, Any] = {
     "paddle_max_team": 3,
     "api_gateway_min_size": "m",
     "max_driven_by": 8, "max_alternatives": 4, "max_tradeoffs": 4,
+    # budget term inside a slot (calibration 14 Nov): compare with the cheapest compatible option when the
+    # layer's share is below it, so the floor of scoring.W never ties cheap and dear options at low budgets
+    # (that tie flipped EAS Build / fastlane as the budget fell)
+    "budget_relative": True,
+    # SMS gap severity when the chosen auth offers a non-SMS sign-in (calibration 14 Nov)
+    "sms_gap_with_fallback": "warning",
 }
+SMS_GAP_SLOT = "other.sms"
+SMS_FALLBACK_MODES = ("email_password", "social")
+SMS_FALLBACK_CAPS = ("magic_links", "passkeys")
 
 # Contributions of scoring.score that apply to supporting layers (plan 6.1: 1, 3, 4, 5, 9, 20).
 SCORE_KEYS = ("priorities", "ops_fit", "scale_fit", "budget_fit", "lock_in", "security_fit")
@@ -89,6 +98,9 @@ IN_PROCESS_KINDS = ("bundled", "db_backed", "db_native", "inference_library", "l
                     "mobile_ci", "native", "none", "offline_sync", "redis_backed", "static_index",
                     "vector_store")
 K8S_ONLY_KINDS = ("gitops", "model_serving")
+# Kinds priced at USD 0 because they run inside the application process (plan 7 table: "ML: in-process
+# ONNX 0 (uses app compute)"); the host band already pays for that compute.
+COST_IN_APP_COMPUTE_KINDS = ("inference_library",)
 SELF_OPERATED_ONLY_KINDS = ("filesystem",)      # a disk/NFS volume: only on servers the team runs
 # Layers / other-kinds whose hyperscaler-only services need a host on that cloud (VPC-bound or
 # operating on that cloud's resources). Storage, CDN, auth, email, push, maps and integrations are
@@ -506,7 +518,8 @@ class _Cx:
     def reuse_hit(self, rec) -> str | None:
         """The existing-system string the record reuses, or None."""
         for m in self.existing_matches:
-            if rec["id"] in (getattr(m, "reuse_targets", ()) or ()):
+            targets = getattr(m, "reuse_targets", ()) or ()
+            if any(_scoring.reuse_target_matches(t, rec, rec.get("layer")) for t in targets):
                 return getattr(m, "raw", rec["id"])
         for raw in self.existing_raw:
             low = raw.lower()
@@ -1136,10 +1149,47 @@ def _affinity(slot: Slot, rec: dict, p, cx: _Cx, bundle_available: bool) -> list
     return out
 
 
-def _score(slot: Slot, rec: dict, p, cx: _Cx, bundle_available: bool) -> Scored:
+def _band_of(rec: dict, p) -> tuple[float, float] | None:
+    """KB band at the profile size used by the slot budget term (in-app-compute kinds cost 0, plan 7)."""
+    if rec.get("kind") in COST_IN_APP_COMPUTE_KINDS:
+        return 0.0, 0.0
+    got = _costs.band_for(rec.get("cost") or {}, p.size)
+    return None if got is None else (got[0], got[1])
+
+
+def slot_floors(recs: list[dict], p) -> tuple[float, float]:
+    """(cheapest mid, cheapest min) among a slot's compatible options at the profile size: the budget
+    term never compares an option with less than the cheapest way to meet the same need."""
+    bands = [b for b in (_band_of(r, p) for r in recs) if b is not None]
+    if not bands:
+        return 0.0, 0.0
+    return min((lo + hi) / 2 for lo, hi in bands), min(lo for lo, _ in bands)
+
+
+def _budget_term(rec: dict, p, cx: _Cx, floors: tuple[float, float], layer: str) -> Contribution | None:
+    band = _band_of(rec, p)
+    if band is None:
+        return None
+    lo, hi = band
+    ctx = LayerContext(layer=layer, supporting_layers=cx.n_layers)
+    min_share, min_budget = floors if SW["budget_relative"] else (0.0, 0.0)
+    if lo == 0 and hi == 0 and min_budget == 0:
+        min_share = 0.0
+    got = _scoring.budget_fit_value(rec["name"], lo, hi, rec.get("free_tier") or {}, ctx.share(rec), p,
+                                    min_share=min_share, min_budget=min_budget)
+    if got is None:
+        return None
+    return _c("budget_fit", got[0], ("budget.monthly_infra_usd",) + _size_fields(p), got[1].rstrip("."))
+
+
+def _score(slot: Slot, rec: dict, p, cx: _Cx, bundle_available: bool,
+           floors: tuple[float, float] = (0.0, 0.0)) -> Scored:
     ctx = LayerContext(layer=slot.kb_layer, supporting_layers=cx.n_layers)
     base = _scoring.score(rec, p, ctx)
-    contribs = [c for c in base.contributions if c.key in SCORE_KEYS]
+    contribs = [c for c in base.contributions if c.key in SCORE_KEYS and c.key != "budget_fit"]
+    bt = _budget_term(rec, p, cx, floors, slot.kb_layer)
+    if bt is not None:
+        contribs.append(bt)
     terms = _affinity(slot, rec, p, cx, bundle_available) + _fits(slot, rec, p, cx)
     agg: dict[str, list] = {}
     for key, v, fields, reason in terms:
@@ -1197,6 +1247,24 @@ def _gap(slot: Slot, trig, p, rejected, incompatible) -> SupportingGap:
                          incompatible=tuple(incompatible), workaround=slot.workaround)
 
 
+def _soften_gap(gap: SupportingGap, cx: _Cx) -> SupportingGap:
+    """An SMS gap is a warning, not critical, when the chosen auth service offers a sign-in that needs no
+    SMS (:data:`SMS_FALLBACK_MODES`): the stack still works with that sign-in until a compliant SMS
+    provider is verified. Other codes (air-gap, cloud-region) keep their severity."""
+    if gap.slot != SMS_GAP_SLOT or gap.code != "SUPPORTING_GAP" or gap.severity != "critical":
+        return gap
+    auth = cx.chosen.get("auth")
+    if not auth:
+        return gap
+    modes = sorted(set(auth.get("triggers") or ()) & set(SMS_FALLBACK_MODES)) + sorted(
+        set(_caps(auth)) & set(SMS_FALLBACK_CAPS))
+    if not modes:
+        return gap
+    msg = (gap.message + f" Severity is warning because the chosen auth service {auth['name']} also supports "
+           f"{', '.join(m.replace('_', ' ') for m in modes)} sign-in, so users can still sign in.")
+    return replace(gap, severity=SW["sms_gap_with_fallback"], message=msg)
+
+
 # ================================================================== select
 def _eval_slot(slot: Slot, trig, p, cx: _Cx):
     pool = [r for r in kb.by_layer(slot.kb_layer)
@@ -1212,7 +1280,8 @@ def _eval_slot(slot: Slot, trig, p, cx: _Cx):
     if not ok:
         return None, _gap(slot, trig, p, rejected, incompatible)
     bundle_available = any(_bundle_or_native(slot, r, cx) for r in ok)
-    ranked = sorted((_score(slot, r, p, cx, bundle_available) for r in ok),
+    floors = slot_floors(ok, p)
+    ranked = sorted((_score(slot, r, p, cx, bundle_available, floors) for r in ok),
                     key=lambda s: (-round(s.total, 4), s.tech["id"]))
     return Selection(slot=slot.id, layer=slot.layer, chosen=ranked[0], ranked=tuple(ranked),
                      rejected=tuple(rejected), incompatible=tuple(incompatible), triggers=tuple(trig)), None
@@ -1235,7 +1304,7 @@ def select(p, core, *, needs_managed_realtime: bool = False) -> SupportingResult
             selections.append(sel)
             cx.chosen[slot.id] = sel.tech
         else:
-            gaps.append(gap)
+            gaps.append(_soften_gap(gap, cx))
     if "web" in p.clients and p.air_gapped:
         asm.append("No CDN: infrastructure.deployment_model=air_gapped has no route to a public edge network.")
     if not cx.has_backend() and cx.nonempty():
@@ -1293,6 +1362,12 @@ def cost_lines(result: SupportingResult, p) -> list[CostLine]:
                                   basis=(f"usage: {msgs:,} SMS/month ({_costs.SMS_PER_USER_MONTH} per user x {users:,} users) x "
                                          f"USD {lo_r:g}-{hi_r:g} per message ({'India DLT route' if p.india else 'international'})"),
                                   source_keys=tuple(rec.get("sources", ())), role="usage"))
+            continue
+        if rec.get("kind") in COST_IN_APP_COMPUTE_KINDS:
+            lines.append(CostLine(slot=slot, component_id=rec["id"], name=rec["name"], min=0, max=0,
+                                  basis="runs inside the back-end process: its compute is the host's line (plan 7: "
+                                        "in-process ONNX costs 0, uses app compute)",
+                                  source_keys=(), role="service"))
             continue
         if "bundled_with_backend" in _caps(rec):
             lines.append(CostLine(slot=slot, component_id=rec["id"], name=rec["name"], min=0, max=0,

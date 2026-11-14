@@ -169,7 +169,8 @@ class P2Tests(_Base):
 
     @unittest.expectedFailure
     def test_mobile_builds_eas(self):
-        # Phase 3 gap: ci_cd picks fastlane for the Expo app; plan 8.1 expects EAS Build.
+        # Gap (KB band): EAS Build is 19-99 at size s vs fastlane 0-20; at P2's per-layer supporting share
+        # (USD 4.8) EAS loses 7.7 on budget_fit, more than its Expo fit (+2) and priorities (+1.15) gain.
         self.assertIn("expo_eas_build", supporting_ids(self.r))
 
 
@@ -178,7 +179,7 @@ class P3Tests(_Base):
 
     @unittest.expectedFailure
     def test_status_ok(self):
-        # Phase 3 gap: core cost band 610-3,100 exceeds the USD 1,500 budget -> BUDGET_TIGHT (8.1 expects ok).
+        # Gap (KB bands): size m (5,000 peak concurrent) bands sum to 680-3,600 > USD 1,500 -> BUDGET_TIGHT.
         self.assertEqual(self.r["status"], "ok")
 
     def test_style(self):
@@ -201,7 +202,8 @@ class P4Tests(_Base):
 
     @unittest.expectedFailure
     def test_status_ok(self):
-        # Phase 3/KB gap: other.sms has no India-verified SMS vendor (MSG91 unknown) -> critical SUPPORTING_GAP.
+        # Gap (KB + cost): no India-verified SMS vendor (MSG91 region unknown, fail closed) -> SUPPORTING_GAP
+        # (now a warning: Spring Security offers email/social sign-in) and BUDGET_TIGHT 1,500-6,300 vs 6,000.
         self.assertEqual(self.r["status"], "ok")
 
     def test_style(self):
@@ -209,8 +211,20 @@ class P4Tests(_Base):
 
     @unittest.expectedFailure
     def test_frontend_web_primary(self):
-        # Calibration gap: Angular (type_affinity fintech +3) outscores React + Vite for the web client.
+        # Gap (KB attributes): Angular lists fintech in best_for (+3) and has security 4 vs 3; React + Vite
+        # trails by 4.7, which only a KB attribute edit (not a weight) could change.
         self.assertEqual(ids(self.layer("frontend"))[0], "react_vite")
+
+    def test_mobile_primary_kmp(self):
+        # the native pair scores as the mean of Compose (Android) and Swift (iOS, team has no Swift)
+        self.assertEqual(ids(self.layer("frontend"))[1:], ["kmp_compose"])
+        self.assertNotIn("SKILL_MISMATCH", codes(self.r))
+
+    def test_sms_gap_is_a_warning_with_fallback_sign_in(self):
+        gaps = [w for w in self.r["warnings"] if w["code"] == "SUPPORTING_GAP" and "sms" in w["message"]]
+        self.assertTrue(gaps)
+        self.assertTrue(all(w["severity"] == "warning" for w in gaps))
+        self.assertIn("Spring Security", gaps[0]["message"])
 
     def test_mobile_acceptable(self):
         mobile = ids(self.layer("frontend"))[1:]
@@ -225,9 +239,8 @@ class P4Tests(_Base):
         self.assertIn("ap-south-1", self.layer("database")["choice"])
         self.assertIn(self.layer("hosting")["kb_id"], ("aws_ecs_fargate", "amazon_eks"))
 
-    @unittest.expectedFailure
     def test_hosting_primary(self):
-        # Calibration gap: Amazon EKS edges out ECS on Fargate in the combination score (8.1 primary: ECS).
+        # k8s_single_deployable (-1): team.size 8 < SOA_MIN_TEAM keeps one deployable, so ECS on Fargate wins
         self.assertEqual(self.layer("hosting")["kb_id"], "aws_ecs_fargate")
 
     def test_wrong_absent(self):
@@ -238,7 +251,7 @@ class P4Tests(_Base):
 
     @unittest.expectedFailure
     def test_cost_range(self):
-        # Phase 3 gap: core cost min (1,100) below the 8.1 range 2,000-5,000 (multipliers/PCI overhead).
+        # Gap: measured 1,500-6,300 (tight): 16 priced lines each 3-10x wide cannot fit a 2.5x range.
         c = self.r["estimated_monthly_cost_usd"]
         self.assertGreaterEqual(c["min"], 2000)
         self.assertLessEqual(c["max"], 5000)
@@ -258,10 +271,12 @@ class P5Tests(_Base):
         self.assertIn("centralindia", self.layer("database")["choice"])
         self.assertEqual(self.layer("hosting")["kb_id"], "azure_app_service")
 
-    @unittest.expectedFailure
     def test_database_primary(self):
-        # Phase 4 gap: needs existing.py reuse credit for the on-prem SQL Server 2019 (Azure SQL over Postgres).
+        # reuse +4 for the supported SQL Server 2019 (database:sqlserver), no new lock-in, .NET + SQL Server synergy
         self.assertEqual(self.layer("database")["kb_id"], "sqlserver")
+        self.assertIn("Azure SQL", self.layer("database")["choice"])
+        self.assertIn("infrastructure.existing_systems", self.layer("database")["driven_by"])
+        self.assertIn("On-prem SQL Server 2019", self.layer("database")["justification"])
 
     def test_wrong_absent(self):
         for i in all_ids(self.r):
@@ -284,7 +299,8 @@ class P6Tests(_Base):
 
     @unittest.expectedFailure
     def test_backend_primary(self):
-        # Calibration gap: NestJS (shared_language with the Expo app) edges out Django/Supabase (8.1 primary).
+        # Gap (no input signal): NestJS shares JavaScript with the Expo app (+1.5, no language_count -0.75)
+        # and leads Django by 0.56; Django's admin advantage (8.1) has no field or description signal.
         self.assertIn(self.layer("backend")["kb_id"], ("django", "supabase"))
 
     def test_wrong_absent(self):

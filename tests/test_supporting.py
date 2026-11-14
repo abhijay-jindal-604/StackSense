@@ -478,6 +478,62 @@ class PublicScenarioTests(unittest.TestCase):
     def test_p6_sms_msg91(self):
         self.assertEqual(self.chosen("P6", "other.sms"), "msg91")
 
+class CalibrationTests(unittest.TestCase):
+    """Calibration 14 Nov: slot budget term relative to the cheapest option; SMS gap severity; ONNX at 0."""
+
+    def mobile_ci(self, budget):
+        raw = scenario(**{"project.platforms": ["web", "android"], "budget.monthly_infra_usd": budget,
+                          "scale.users_12_months": 30000, "scale.peak_concurrent_users": 800,
+                          "scale.data_volume_gb_12_months": 50})
+        core = dict(CORE, frontend=["react_vite", "react_native_expo"])
+        p, res = run(raw, core)
+        sel = res.get("ci_cd.mobile")
+        return p, sel
+
+    def test_slot_budget_term_never_ties_cheap_and_dear_options(self):
+        prev = None
+        for b in (1, 2, 5, 10, 30, 75, 150, 500):
+            p, sel = self.mobile_ci(b)
+            by = {s.tech["id"]: s for s in sel.ranked}
+            eas, fl = by["expo_eas_build"], by["fastlane"]
+            gap = round(fl.value("budget_fit") - eas.value("budget_fit"), 2)
+            self.assertGreaterEqual(gap, 0, b)                    # the dearer option never pays less
+            if b <= 30:
+                self.assertGreater(gap, 0, b)                     # no floor tie at low budgets
+            if prev is not None:
+                self.assertLessEqual(gap, prev + 1e-9, b)         # and the gap only narrows as the budget rises
+            prev = gap
+        floors = supporting.slot_floors([kb_rec("expo_eas_build"), kb_rec("fastlane")], p)
+        self.assertEqual(floors, (10.0, 0))                       # fastlane 0-20 at size s
+
+    def test_sms_gap_warning_when_auth_has_another_sign_in(self):
+        raw = scenario(**{"requirements.auth": "phone_otp", "infrastructure.data_residency": "india"})
+        _, res = run(raw)
+        gap = res.gap("other.sms")
+        self.assertIsNotNone(gap)
+        auth = res.get("auth")
+        self.assertIsNotNone(auth)
+        self.assertEqual(gap.code, "SUPPORTING_GAP")
+        self.assertEqual(gap.severity, supporting.SW["sms_gap_with_fallback"])
+        self.assertIn(auth.tech["name"], gap.message)
+        # without an auth selection the gap stays critical
+        bare = supporting._soften_gap(gap.__class__(**{**gap.__dict__, "severity": "critical"}),
+                                      type("Cx", (), {"chosen": {}})())
+        self.assertEqual(bare.severity, "critical")
+
+    def test_in_process_inference_costs_nothing(self):
+        p, res = run(load_public("P4"), PUBLIC_CORES["P4"])
+        ml = res.get("ml")
+        if ml is not None and ml.tech.get("kind") == "inference_library":
+            ln = next(ln for ln in res.cost_lines(p) if ln.component_id == ml.id)
+            self.assertEqual((ln.min, ln.max), (0, 0))
+            self.assertIn("back-end process", ln.basis)
+
+
+def kb_rec(rid):
+    from stacksense import kb
+    return kb.get(rid)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,30 @@ PEAK_CONCURRENCY_SHARE = 0.05      # C = max(1, ceil(0.05 * users_12_months)) wh
 REQUESTS_PER_CONCURRENT_USER = 0.2  # rps = ceil(0.2 * C) when not given
 DATA_GB_PER_USER = 0.002            # 2 MB per user
 DATA_GB_PER_USER_MEDIA = 0.05       # when file_media_storage
-EGRESS_GB_PER_USER = 0.05           # 50 MB per user per month; x3 for media-heavy
+# Internet egress per user per month (GB). Plan 7 started from a flat 50 MB/user; calibration (14 Nov)
+# splits it by project.type because the payload mix differs by an order of magnitude:
+# * API-centric clients (fintech, internal tools, API platforms, IoT): JSON responses are a few KB
+#   each; ~50 calls a session x ~30 sessions a month is ~10-15 MB. Mobile app binaries are served by
+#   the app stores and web bundles are cached by the browser/CDN after the first load -> 15 MB.
+# * Interactive web apps (SaaS, marketplaces, collaboration, health, analytics, AI products, other):
+#   API traffic plus first-load bundles and thumbnails -> 30 MB.
+# * Page- and image-heavy browsing (content sites, e-commerce catalogues, social feeds, games):
+#   ~20 page views of 1-3 MB with images -> 50 MB (the plan's original figure).
+# Media-heavy projects (stored media >= MEDIA_HEAVY_GB_PER_USER per user) still multiply by
+# EGRESS_MEDIA_FACTOR. These are engineering assumptions, stated in every estimate's assumptions.
+EGRESS_GB_PER_USER = 0.03           # default (interactive web app), 30 MB per user per month
+EGRESS_GB_PER_USER_BY_TYPE = {
+    "fintech": 0.015, "internal_tool": 0.015, "api_platform": 0.015, "iot": 0.015,
+    "web_app": 0.03, "saas_b2b": 0.03, "marketplace": 0.03, "realtime_collab": 0.03, "healthtech": 0.03,
+    "data_analytics": 0.03, "ai_ml_product": 0.03, "other": 0.03,
+    "content_site": 0.05, "ecommerce": 0.05, "social": 0.05, "gaming": 0.05,
+}
 EGRESS_MEDIA_FACTOR = 3
+
+
+def egress_gb_per_user(project_type: str | None) -> float:
+    """Egress GB per user per month for ``project.type`` (default :data:`EGRESS_GB_PER_USER`)."""
+    return EGRESS_GB_PER_USER_BY_TYPE.get(project_type or "", EGRESS_GB_PER_USER)
 MEDIA_SHARE_OF_DATA = 0.8
 
 
@@ -57,6 +79,19 @@ AVAILABILITY_MULTIPLIERS = {
     "99.99": (2.2, 2.5),
 }
 FAILOVER_TOOLING_SHARE = {"99.99": 0.10}
+# Lines exempt from the availability factor: managed static/edge hosts (GitHub/Cloudflare Pages,
+# Netlify, Vercel, Amplify Hosting) serve from replicated multi-zone storage and edge networks by
+# construction, so there is no standby instance to buy (traffic multipliers still apply).
+AVAILABILITY_EXEMPT_KINDS = ("static_host",)
+# Frontend kinds that execute on the host per request (SSR functions): a static host serving them still
+# takes the traffic multiplier; serving pre-built SPA/SSG files it does not (bursts = bytes served,
+# priced in the egress line).
+SERVER_RENDERED_FRONTEND_KINDS = ("ssr", "server_templates")
+# When the availability and traffic factors both apply to a compute line, the max uses the larger of
+# the two instead of their product: the redundant capacity bought for availability (N+1 instances
+# across zones) is the same headroom that absorbs a burst. The min keeps the product (an autoscaling
+# host still idles less). Calibration 14 Nov: compounding put P4 compute at x2.1 on the max.
+COMBINE_MAX_FACTORS = "larger"
 # traffic pattern on (autoscaling host, fixed host) -> (min multiplier, max multiplier) on compute
 TRAFFIC_MULTIPLIERS = {
     "autoscaling": {"spiky": (0.8, 1.4), "seasonal": (0.8, 1.4)},
@@ -70,9 +105,14 @@ COMPLIANCE_OVERHEAD = {
     "iso27001": {"s": (20, 80), "m": (50, 300), "l": (300, 1200)},
     "soc2": {"s": (20, 80), "m": (50, 300), "l": (300, 1200)},
     "rbi_localisation": {"s": (0, 0), "m": (0, 0), "l": (0, 0)},
-    "gdpr": {"s": (0, 50), "m": (0, 50), "l": (0, 50)},
-    "dpdp": {"s": (0, 50), "m": (0, 50), "l": (0, 50)},
+    # consent records and request tooling: a table and a form at s, a consent-management service
+    # at m/l (calibration 14 Nov: the flat 0-50 overstated small projects)
+    "gdpr": {"s": (0, 20), "m": (0, 50), "l": (20, 150)},
+    "dpdp": {"s": (0, 20), "m": (0, 50), "l": (20, 150)},
 }
+# Regimes whose overhead tooling (log retention, backup, vulnerability scanning) is a subset of
+# another regime's present in the same project: the subset line is counted once, inside the larger.
+COMPLIANCE_SUBSUMED_BY = {"iso27001": ("pci_dss", "hipaa"), "soc2": ("pci_dss", "hipaa", "iso27001")}
 
 # Usage-line rates (USD).
 OBJECT_STORAGE_RATE_GB_MONTH = {"hyperscaler": (0.023, 0.026), "r2": (0.015, 0.015), "spaces": (0.02, 0.02)}

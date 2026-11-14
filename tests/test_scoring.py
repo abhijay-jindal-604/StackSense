@@ -347,6 +347,33 @@ class OtherContributions(unittest.TestCase):
         self.assertIn("On-prem SQL Server 2019", c.reason)
         self.assertEqual(value(r, P(), "reuse"), 0)  # p.existing empty today
 
+    def test_reuse_targets_layer_value(self):
+        sql = kb.get("sqlserver")
+        pg = kb.get("postgres")
+        ok = {"state": "supported"}
+        hit = ExistingReport(matches=(ExistingMatch("On-prem SQL Server 2019", "sqlserver", "database", "sqlserver",
+                                                    "2019", ("database:sqlserver",), "", ok),))
+        p = P(existing=hit)
+        self.assertEqual(value(sql, p, "reuse"), W["reuse_exact"])
+        self.assertEqual(value(sql, p, "lock_in"), 0)              # already depended on: no new lock-in
+        self.assertLess(value(sql, P(), "lock_in"), 0)
+        self.assertIn("On-prem SQL Server 2019", contrib(sql, p).get("reuse").reason)
+        self.assertIn("infrastructure.existing_systems", contrib(sql, p).get("reuse").fields)
+        self.assertEqual(value(pg, p, "reuse"), 0)                 # not the same engine or ecosystem
+        # an end-of-life system is no exact reuse; the ecosystem credit remains
+        ended = ExistingReport(matches=(ExistingMatch("SQL Server 2016", "sqlserver", "database", "sqlserver",
+                                                      "2016", ("database:sqlserver",), "", {"state": "ended"}),))
+        self.assertEqual(value(sql, P(existing=ended), "reuse"), W["reuse_ecosystem"])
+        # the target layer must match the scored layer; aliases and runtimes match values
+        self.assertTrue(scoring.reuse_target_matches("database:sqlserver", sql, "database"))
+        self.assertFalse(scoring.reuse_target_matches("database:sqlserver", sql, "backend"))
+        self.assertTrue(scoring.reuse_target_matches("database:postgresql", pg, "database"))
+        self.assertTrue(scoring.reuse_target_matches("backend:java", kb.get("spring_boot"), "backend"))
+        self.assertTrue(scoring.reuse_target_matches("backend:dotnet", kb.get("aspnet_core"), "backend"))
+        self.assertFalse(scoring.reuse_target_matches("backend:dotnet", kb.get("django"), "backend"))
+        self.assertTrue(scoring.reuse_target_matches("hosting:azure", kb.get("azure_app_service"), "hosting"))
+        self.assertTrue(scoring.reuse_target_matches("identity:entra_id", kb.get("entra_id_workforce"), "auth"))
+
     def test_availability(self):
         db = rec(layer="database", kind="relational")
         self.assertEqual(value(db, P("P4"), "availability_fit"), -5)                 # 99.95
@@ -440,7 +467,9 @@ class OtherContributions(unittest.TestCase):
     def test_overengineering_k8s_and_distributed_sql(self):
         k8s = rec(layer="hosting", kind="k8s", ops_burden=4, scale_floor="m")
         self.assertEqual(value(k8s, P(), "overengineering"), W["overengineering"])    # ops 2, size s
-        self.assertEqual(value(k8s, P("P3"), "overengineering"), 0)                  # ops 5, size m
+        # ops 5, size m: allowed; team.size 5 < SOA_MIN_TEAM keeps one deployable -> small penalty only
+        self.assertEqual(value(k8s, P("P3"), "overengineering"), W["k8s_single_deployable"])
+        self.assertEqual(value(k8s, P("P3", team__size=scoring.SOA_MIN_TEAM), "overengineering"), 0)
         small = P("P3", scale__users_12_months=3000, scale__users_at_launch=100, scale__peak_concurrent_users=50,
                   scale__data_volume_gb_12_months=1)
         self.assertEqual(value(k8s, small, "overengineering"), W["overengineering"])  # ops 5, size xs
@@ -526,8 +555,9 @@ class Monotonicity(unittest.TestCase):
                 continue
             for sid in ("P1", "P2", "P5", "P6"):
                 self.assertEqual(value(r, P(sid), "overengineering"), W["overengineering"], (sid, r["id"]))
-            for sid in ("P3", "P4"):
-                self.assertEqual(value(r, P(sid), "overengineering"), 0, (sid, r["id"]))
+            for sid in ("P3", "P4"):      # allowed; teams of 5 and 8 keep one deployable (plan 6.2)
+                self.assertEqual(value(r, P(sid), "overengineering"), W["k8s_single_deployable"], (sid, r["id"]))
+                self.assertEqual(value(r, P(sid, team__size=scoring.SOA_MIN_TEAM), "overengineering"), 0)
             # lowering devops/team below the threshold re-introduces the penalty
             weak = P("P3", team__has_devops=False, team__experience="intermediate")
             self.assertLess(weak.ops_capacity, scoring.K8S_MIN_OPS)

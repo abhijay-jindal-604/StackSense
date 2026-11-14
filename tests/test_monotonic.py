@@ -4,9 +4,9 @@
   cheaper feasible stack was available (it was chosen at the higher budget).
 * One step on one priority does not replace the whole core stack.
 
-The P2 budget sweep is a recorded gap (expectedFailure): the core stack is stable, but the supporting
-ci_cd pick switches between EAS Build (USD 19-99) and fastlane (USD 0-20) with the budget
-(supporting.py), which moves the total estimate's minimum.
+Calibration 14 Nov made both sweeps monotone: supporting slots compare an option with the cheapest
+compatible one when the layer share is below it (no floor ties), and the budget fallback also prices
+combinations of the cheapest databases/hosts by band (combine.cheapest_combinations).
 """
 from __future__ import annotations
 
@@ -68,15 +68,18 @@ def core_ids(r: dict) -> dict:
 
 
 class BudgetMonotonicTest(unittest.TestCase):
-    # Regressed by the §7 cost model (AWS egress): at budget 10 combine's passed set has no DO App Platform combo -> Lambda min 64 vs 45. Calibration TODO.
-    @unittest.expectedFailure
     def test_p6_cost_min_non_increasing_as_budget_falls(self):
         self.assertEqual(violations(sweep("P6")), [])
 
-    @unittest.expectedFailure
     def test_p2_cost_min_non_increasing_as_budget_falls(self):
-        # Gap (supporting.py): EAS Build vs fastlane flips with the budget at USD 30-75.
         self.assertEqual(violations(sweep("P2")), [])
+
+    def test_p6_budget_zero_keeps_an_oltp_database(self):
+        # calibration 14 Nov: the free-tier bonus must not put an analytical store (BigQuery) under a survey app
+        for b in (0, 1, 5):
+            r = run("P6", budget__monthly_infra_usd=b)
+            self.assertNotEqual(r["stack"]["database"]["kb_id"], "bigquery", b)
+            self.assertIn(r["stack"]["database"]["kb_id"], ("postgres", "sqlite", "mysql", "mariadb"), b)
 
     def test_p2_core_stack_stable_from_public_budget_up(self):
         base = core_ids(run("P2"))
@@ -96,8 +99,6 @@ class BudgetMonotonicTest(unittest.TestCase):
 
 
 class PriorityStepTest(unittest.TestCase):
-    # Regressed by the §7 cost model: Next.js+Supabase+ECS now starts at USD 200 (AWS egress ~126) > budget 150, fallback picks Astro+Vercel. Calibration TODO.
-    @unittest.expectedFailure
     def test_p2_security_plus_one_keeps_the_core(self):
         base = core_ids(run("P2"))
         sec = load("P2")["priorities"]["security"]

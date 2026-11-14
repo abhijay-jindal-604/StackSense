@@ -73,6 +73,8 @@ W: dict[str, Any] = {
     "type_best": 3, "type_avoid": -3,
     # 8 reuse
     "reuse_exact": 4, "reuse_ecosystem": 2, "reuse_licence": 1.5,
+    # 9 lock_in: no penalty for a product the organisation already runs (exact, non-EOL reuse)
+    "lock_in_reuse_waived": True,
     # 9 lock_in
     "lock_in_factor": {"low": -1.5, "medium": -0.5, "high": 0},
     # 10 availability_fit
@@ -103,6 +105,9 @@ W: dict[str, Any] = {
     "security_baas_types": ("fintech", "healthtech"),
     # 21 overengineering (plan 3.12 / 6.2 thresholds enforced in scoring)
     "overengineering": -10,
+    # managed Kubernetes for a team below SOA_MIN_TEAM (one deployable by plan 6.2) on managed cloud:
+    # a small penalty, not a filter (calibration 14 Nov; on-prem/air-gapped K8s is exempt)
+    "k8s_single_deployable": -1,
     "MICRO_MIN_TEAM": MICRO_MIN_TEAM, "MICRO_MIN_SIZE": MICRO_MIN_SIZE, "SOA_MIN_TEAM": SOA_MIN_TEAM,
     "K8S_MIN_OPS": K8S_MIN_OPS, "K8S_MIN_SIZE": K8S_MIN_SIZE, "K8S_ONPREM_MIN_TEAM": K8S_ONPREM_MIN_TEAM,
     "DISTRIBUTED_SQL_MIN_SIZE": DISTRIBUTED_SQL_MIN_SIZE,
@@ -129,6 +134,7 @@ DYNAMIC_FIELDS = ("requirements.auth", "requirements.payments", "requirements.re
                   "requirements.multi_tenant", "requirements.file_media_storage",
                   "requirements.ml_features", "project.type")
 SIZE_FIELDS = ("scale.users_12_months", "scale.peak_concurrent_users", "scale.data_volume_gb_12_months")
+FRONTEND_LAYERS_REUSE = ("frontend_web", "frontend_mobile", "frontend_desktop", "frontend_game")
 # Ecosystem tags for reuse (#8): what an existing system or licence makes cheaper to adopt.
 LICENCE_ECOSYSTEM = {
     "microsoft_enterprise": ("azure", "dotnet", "sqlserver"), "oracle": ("jvm", "oracle"),
@@ -138,6 +144,18 @@ KIND_ECOSYSTEM = {
     "entra_id": ("azure", "dotnet"), "active_directory": ("azure", "dotnet"),
     "sqlserver": ("azure", "dotnet", "sqlserver"), "microsoft365": ("azure", "dotnet"),
     "oracle_db": ("jvm", "oracle"), "oracle": ("jvm", "oracle"),
+}
+# Reuse targets (existing.ExistingMatch.reuse_targets, 'layer:value') -> scoring layers they apply to.
+REUSE_TARGET_LAYERS = {
+    "frontend": FRONTEND_LAYERS_REUSE, "identity": ("auth",), "ci": ("ci_cd",), "messaging": ("queue", "realtime"),
+    "saas": ("other",), "services": ("other",),
+}
+# Reuse target values that name KB records or record keys under another spelling.
+REUSE_VALUE_ALIASES = {
+    "postgresql": ("postgres",), "nodejs": ("node",), "java": ("jvm",), "kubernetes": ("k8s",),
+    "on_prem": ("onprem",), "react": ("react_vite", "react_router", "nextjs"), "vue": ("vue_vite", "nuxt"),
+    "github_actions": ("github_actions",), "azure_devops": ("azure_pipelines",), "gitlab_ci": ("gitlab",),
+    "entra_id": ("entra_id",), "microsoft_graph": ("microsoft_graph",),
 }
 LANGUAGE_ECOSYSTEM = {"csharp": "dotnet", "fsharp": "dotnet", "java": "jvm", "kotlin": "jvm",
                       "scala": "jvm", "python": "python", "javascript": "node", "typescript": "node"}
@@ -473,14 +491,22 @@ def _budget(tech, p, ctx):
     return got[0], fields, got[1]
 
 
-def budget_fit_value(name: str, lo: float, hi: float, free_tier: dict, share_frac: float, p
+def budget_fit_value(name: str, lo: float, hi: float, free_tier: dict, share_frac: float, p,
+                     floor: float | None = None, min_share: float = 0.0, min_budget: float = 0.0,
                      ) -> tuple[float, str] | None:
     """budget_fit for a priced item with band ``lo``-``hi`` and budget share ``share_frac`` (also used
     by ``combine.py`` for items billed once across layers). Smooth in budget and cost for budget > 0:
-    ``-(slope x log2(mid / share) + slope x log2(min / budget) when min > budget)``, floored."""
+    ``-(slope x log2(mid / share) + slope x log2(min / budget) when min > budget)``, floored.
+
+    ``min_share`` / ``min_budget`` (supporting layers, ``supporting.py``): when the layer's share (or
+    the whole budget) is below what the cheapest compatible option of the layer costs, compare with that
+    cheapest option instead, so the penalty measures the extra cost over the cheapest way to meet the
+    need and stays ordered as the budget falls (no floor ties at tiny budgets)."""
     budget = val(p, "budget.monthly_infra_usd", 0) or 0
     btxt = f"budget.monthly_infra_usd={fmt(budget)}"
-    if budget == 0:
+    if budget == 0 and min_budget > 0:
+        budget = 0.0                      # nothing in the layer is free: relative comparison below
+    elif budget == 0:
         ft = free_tier or {}
         if lo == 0:
             if ft and ft.get("commercial_use") is False:
@@ -490,19 +516,31 @@ def budget_fit_value(name: str, lo: float, hi: float, free_tier: dict, share_fra
                     + (f" (free tier: {ft.get('limit')})." if ft.get("limit") else "."))
         return (W["budget_none_free"],
                 f"{btxt}, but {name} costs at least USD {_num(lo)}/month at size {p.size} and has no free option.")
-    share = budget * share_frac
+    share = max(budget * share_frac, min_share)
+    whole_budget = max(budget, min_budget)
     mid = (lo + hi) / 2
     if share <= 0 or mid <= share:
+        share_ok = True
+    else:
+        share_ok = False
+    if share_ok and not (whole_budget > 0 and lo > whole_budget):
         return None
-    over = W["budget_over_slope"] * math.log2(mid / share)
-    whole = W["budget_whole_slope"] * math.log2(lo / budget) if lo > budget else 0.0
-    v = round(max(W["budget_fit_min"], -(over + whole)), 2)
+    over = 0.0 if share_ok else W["budget_over_slope"] * math.log2(mid / share)
+    whole = W["budget_whole_slope"] * math.log2(lo / whole_budget) if whole_budget > 0 and lo > whole_budget else 0.0
+    v = round(max(W["budget_fit_min"] if floor is None else floor, -(over + whole)), 2)
     if not v:
         return None
-    text = (f"{name} costs about USD {_num(mid)}/month (USD {_num(lo)}-{_num(hi)}) at size {p.size}, "
-            f"{_num(round(mid / share, 1))}x this layer's share USD {_num(share)} of {btxt}")
+    own = budget * share_frac
+    if share > own:
+        text = (f"{name} costs about USD {_num(mid)}/month (USD {_num(lo)}-{_num(hi)}) at size {p.size}, "
+                f"{_num(round(mid / share, 1))}x the cheapest compatible option of this layer (USD {_num(share)}), "
+                f"which is already above this layer's share USD {_num(round(own, 2))} of {btxt}")
+    else:
+        text = (f"{name} costs about USD {_num(mid)}/month (USD {_num(lo)}-{_num(hi)}) at size {p.size}, "
+                f"{_num(round(mid / share, 1))}x this layer's share USD {_num(share)} of {btxt}")
     if whole:
-        text += "; its minimum alone is above the whole budget"
+        text += ("; its minimum alone is above the whole budget" if whole_budget <= budget else
+                 f"; its minimum is above the cheapest compatible option's minimum USD {_num(whole_budget)}")
     return v, text + "."
 
 
@@ -834,16 +872,68 @@ def _tech_ecosystems(tech) -> set:
     return eco
 
 
+def _reuse_keys(tech) -> set:
+    """Names a reuse target value can match for ``tech``: its id, kind, runtimes, languages, language
+    ecosystems and cloud families."""
+    keys = {tech.get("id"), tech.get("kind")}
+    rt = tech.get("runtime")
+    keys |= set(rt if isinstance(rt, list) else [rt])
+    for lang in tech.get("languages") or []:
+        keys.add(lang)
+        keys.add(LANGUAGE_ECOSYSTEM.get(lang))
+    keys |= {c for c in (tech.get("cloud_affinity") or []) if c in ("aws", "azure", "gcp")}
+    keys.add(tech.get("underlying_cloud"))
+    keys.discard(None)
+    return keys
+
+
+def reuse_target_matches(target: str, tech, layer: str | None) -> bool:
+    """True when an ``ExistingMatch.reuse_targets`` entry (``'layer:value'``, e.g. ``database:sqlserver``,
+    ``identity:entra_id``; a bare id is accepted too) names ``tech`` scored for ``layer``: the target layer
+    maps onto the candidate's layer (:data:`REUSE_TARGET_LAYERS`) and the value is the candidate's id, an
+    id prefix (``postgres`` -> ``postgres_14``), an alias (:data:`REUSE_VALUE_ALIASES`), or one of its
+    runtimes, languages, ecosystems or cloud families."""
+    if ":" not in target:
+        return target == tech.get("id")
+    t_layer, value = target.split(":", 1)
+    layers = REUSE_TARGET_LAYERS.get(t_layer, (t_layer,))
+    if (layer or tech.get("layer")) not in layers:
+        return False
+    tid = tech.get("id") or ""
+    names = (value,) + REUSE_VALUE_ALIASES.get(value, ())
+    keys = _reuse_keys(tech)
+    return any(n == tid or tid.startswith(n + "_") or n in keys for n in names)
+
+
+def _reuse_ok(m) -> bool:
+    """A match can be reused exactly when it is not end-of-life: no verdict, or state ``supported``."""
+    return not m.eol or m.eol.get("state") == "supported"
+
+
+def exact_reuse(tech, p, layer: str | None = None):
+    """The first non-EOL existing-system match whose reuse targets name ``tech``, or None."""
+    ex = getattr(p, "existing", None)
+    for m in (getattr(ex, "matches", ()) or ()) if ex else ():
+        if _reuse_ok(m) and any(reuse_target_matches(t, tech, layer) for t in (m.reuse_targets or ())):
+            return m
+    return None
+
+
 def _reuse(tech, p, ctx):
     ex = getattr(p, "existing", None)
     v, fields, why = 0.0, [], []
     matches = list(getattr(ex, "matches", ()) or ()) if ex else []
-    exact = [m for m in matches if tech["id"] in (m.reuse_targets or ())
-             and not (m.eol and m.eol.get("status") in ("eol", "retired", "unsupported"))]
+    hit = exact_reuse(tech, p, ctx.layer)
+    exact = [hit] if hit is not None else []
     teco = _tech_ecosystems(tech)
     if exact:
         v += W["reuse_exact"]
-        why.append(f"infrastructure.existing_systems includes '{exact[0].raw}', which {tech['name']} reuses")
+        text = f"infrastructure.existing_systems includes '{exact[0].raw}', which {tech['name']} reuses"
+        if exact[0].eol:
+            text += " (still supported, not end-of-life)"
+        if tech.get("lock_in") and W["lock_in_reuse_waived"]:
+            text += "; the organisation already depends on it, so no new lock-in is counted"
+        why.append(text)
         fields.append("infrastructure.existing_systems")
     else:
         for m in matches:
@@ -873,6 +963,8 @@ def _reuse(tech, p, ctx):
 def _lock_in(tech, p, ctx):
     tol = val(p, "infrastructure.lock_in_tolerance", "medium")
     li = tech.get("lock_in", 0)
+    if li and W["lock_in_reuse_waived"] and exact_reuse(tech, p, ctx.layer) is not None:
+        return None   # the organisation already depends on it: choosing it adds no new lock-in
     factor = W["lock_in_factor"].get(tol, W["lock_in_factor"]["medium"])
     if not li or not factor:
         return None
@@ -1161,6 +1253,12 @@ def _overengineering(tech, p, ctx):
             f"{p.ops_capacity}: team.experience={val(p, 'team.experience')}, team.has_devops="
             f"{fmt(val(p, 'team.has_devops'))}, team.size={fmt(val(p, 'team.size'))}) and size >= {K8S_MIN_SIZE} "
             f"({_size_text(p)}).")
+    team = val(p, "team.size", 0) or 0
+    if (ctx.layer == "hosting" and _is_k8s(tech) and not p.self_hosted_only and team < SOA_MIN_TEAM):
+        return W["k8s_single_deployable"], ("team.size",), (
+            f"team.size={fmt(team)} is below {SOA_MIN_TEAM}, so the architecture rules keep one deployable "
+            f"(monolith or modular monolith); {tech['name']} adds a cluster to run for a single service where "
+            "a managed container service runs the same image.")
     if ctx.layer == "database" and _has(tech, "distributed_sql") and not distributed_sql_allowed(p):
         return W["overengineering"], _size_fields(p) + ("scale.geographic_spread",), (
             f"{tech['name']} is distributed SQL, justified only at size >= {DISTRIBUTED_SQL_MIN_SIZE} or a global "

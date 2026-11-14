@@ -276,6 +276,14 @@ class SynergyTest(unittest.TestCase):
         self.assertEqual(v["workers_d1"], 1.5)
         self.assertEqual(v["ssg_static_host"], 1.5)
 
+    def test_dotnet_sqlserver(self):
+        p5 = prof("P5")
+        v, out = self.syn("blazor", "aspnet_core", "sqlserver", "azure_app_service", "azure_app_service", p5)
+        self.assertEqual(v["dotnet_sqlserver"], T["synergy"]["dotnet_sqlserver"])
+        self.assertIn("Entity Framework Core", next(c for c in out if c.key == "dotnet_sqlserver").reason)
+        v, _ = self.syn("blazor", "aspnet_core", "postgres", "azure_app_service", "azure_app_service", p5)
+        self.assertNotIn("dotnet_sqlserver", v)
+
     def test_bff_split_and_managed_realtime(self):
         v, out = self.syn("nextjs", "django", "postgres", "do_app_platform", "do_app_platform", self.p2)
         self.assertEqual(v["bff_split"], -1.0)               # team.size 3, Next.js server + Python API
@@ -333,6 +341,17 @@ class ClientPickTest(unittest.TestCase):
         self.assertEqual(combine.codebase_terms(natives, big), [])
         expected = f"{kb.get('compose_android')['name']} (Android) and {kb.get('swiftui_ios')['name']} (iOS)"
         self.assertEqual(natives.label, expected)   # plan 5.4: both native toolkits joined
+
+    def test_native_pair_scores_as_mean_of_both_toolkits(self):
+        big = prof("P4")
+        pair = combine.ClientPart("frontend_mobile", ("android",), S("compose_android", 16.0),
+                                  S("swiftui_ios", 10.0), ("ios",))
+        terms = combine.codebase_terms(pair, big)
+        self.assertEqual([c.value for c in terms], [T["partner_weight"] * (10.0 - 16.0)])
+        self.assertIn("mean of both", terms[0].reason)
+        self.assertEqual(round(16.0 + terms[0].value, 2), 13.0)
+        small = prof("P4", team__size=3)        # plus the two-natives penalty for a small team
+        self.assertEqual([c.value for c in combine.codebase_terms(pair, small)], [-3.0, -2.0])
 
     def test_joined_natives_from_options(self):
         p = prof("P4")
@@ -540,6 +559,17 @@ class PublicSmokeTest(unittest.TestCase):
         p5 = prof("P5")
         b = search(ranked_for(p5), p5).best
         self.assertEqual(combine.offerings.provider_family(b.hosting.tech), "azure")
+
+class CheapestCombinationsTest(unittest.TestCase):
+    def test_cheapest_by_band_independent_of_budget_terms(self):
+        for b in (0, 5, 50):
+            p = prof("P6", budget__monthly_infra_usd=b)
+            combos = combine.cheapest_combinations(ranked_for(p), p)
+            self.assertTrue(combos, b)
+            self.assertEqual(combos, combine.cheapest_combinations(ranked_for(p), p))      # deterministic
+            hosts = {c.hosting.tech["id"] for c in combos}
+            self.assertIn("aws_lambda_host", hosts, b)   # cheapest paid hosts stay in view at every budget
+        self.assertEqual(combine.cheapest_combinations({}, prof("P6")), [])
 
 
 if __name__ == "__main__":

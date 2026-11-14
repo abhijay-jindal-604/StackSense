@@ -402,32 +402,51 @@ def _onprem(p, components: Mapping[str, Any], lines: list[CostLine]) -> tuple[li
     return out, [note]
 
 
-def _multiply(p, lines: list[CostLine], recs: Mapping[str, dict]) -> tuple[list[CostLine], list[str], tuple]:
-    """Availability factors on compute/database lines, then the traffic factor on compute lines."""
+def _multiply(p, lines: list[CostLine], recs: Mapping[str, dict],
+              components: Mapping[str, Any] | None = None) -> tuple[list[CostLine], list[str], tuple]:
+    """Availability factors on compute/database lines, then the traffic factor on compute lines.
+    Managed static/edge hosts take no availability factor; serving pre-built files (no server-rendered
+    frontend) they take no traffic factor either, because their bursts are bytes served, which the
+    egress line already prices."""
+    components = components or {}
     avail = _availability(p)
     f_comp, f_db = _costs.AVAILABILITY_MULTIPLIERS[avail]
     pattern = val(p, "scale.traffic_pattern", "steady")
     out: list[CostLine] = []
     up_lo = up_hi = 0.0
     traffic_hits: dict[str, list[str]] = {}
+    exempt_hits: list[str] = []
+    static_hits: list[str] = []
+    serves_ssr = any(r.get("kind") in _costs.SERVER_RENDERED_FRONTEND_KINDS for r in _many(components.get("frontend")))
     for ln in lines:
         if ln.role not in ("compute", "database"):
             out.append(ln)
             continue
         f = f_comp if ln.role == "compute" else f_db
+        line_recs = _line_recs(ln, recs)
+        exempt = bool(line_recs) and all(r.get("kind") in _costs.AVAILABILITY_EXEMPT_KINDS for r in line_recs)
+        if exempt and f != 1.0:
+            f = 1.0
+            exempt_hits.append(ln.name)
         m_lo, m_hi = f, f
         notes = []
         if f != 1.0:
             notes.append(f"x{fmt(f)} for {avail}% availability")
             up_lo += ln.min * (f - 1)
             up_hi += ln.max * (f - 1)
-        if ln.role == "compute" and pattern in TRAFFIC_PATTERNS:
-            mode = _scales(_line_recs(ln, recs))
+        static_files = exempt and not serves_ssr
+        if static_files and ln.role == "compute" and pattern in TRAFFIC_PATTERNS:
+            static_hits.append(ln.name)
+        elif ln.role == "compute" and pattern in TRAFFIC_PATTERNS:
+            mode = _scales(line_recs)
             t_lo, t_hi = _costs.TRAFFIC_MULTIPLIERS[mode][pattern]
             if (t_lo, t_hi) != (1.0, 1.0) and ln.max > 0:
-                m_lo, m_hi = m_lo * t_lo, m_hi * t_hi
+                # min: product (idles less); max: the larger factor (standby capacity absorbs bursts)
+                m_lo, m_hi = m_lo * t_lo, max(m_hi, t_hi)
                 notes.append(f"min x{fmt(t_lo)}, max x{fmt(t_hi)} for {pattern} traffic on "
-                             f"{'an autoscaling' if mode == 'autoscaling' else 'a fixed-capacity'} host")
+                             f"{'an autoscaling' if mode == 'autoscaling' else 'a fixed-capacity'} host"
+                             + (f" (max x{fmt(m_hi)}: the larger of the availability and traffic factors, "
+                                "not their product)" if f != 1.0 else ""))
                 traffic_hits.setdefault(mode, []).append(ln.name)
         if notes and ln.max > 0:
             ln = replace(ln, min=_r2(ln.min * m_lo), max=_r2(ln.max * m_hi),
@@ -438,6 +457,12 @@ def _multiply(p, lines: list[CostLine], recs: Mapping[str, dict]) -> tuple[list[
               "above are already in the bands)", "99.95": " (multi-AZ standby)",
               "99.99": " (multi-AZ plus warm cross-region DR)"}[avail]
            + (f", adding about USD {_n(up_lo)}-{_n(up_hi)}/month before traffic adjustment" if up_hi else "") + "."]
+    if exempt_hits:
+        asm.append(f"No availability factor on {', '.join(exempt_hits)}: managed static/edge hosting is replicated "
+                   "across zones by the provider, so there is no standby instance to pay for.")
+    if static_hits:
+        asm.append(f"No traffic factor on {', '.join(static_hits)}: it serves pre-built files, so a {pattern} burst "
+                   "is extra bytes served, already priced in the egress line.")
     if pattern in TRAFFIC_PATTERNS:
         parts = []
         for mode in ("autoscaling", "fixed"):
@@ -509,6 +534,11 @@ def _included(profile: dict, size: str) -> float:
     return inc.get(size, inc.get("l") if size == "xl" and "l" in inc else inc.get("*", 0))
 
 
+def egress_per_user(p) -> float:
+    """GB per user per month for the project's type (``kb.costs.EGRESS_GB_PER_USER_BY_TYPE``)."""
+    return _costs.egress_gb_per_user(val(p, "project.type"))
+
+
 def media_heavy(p) -> bool:
     """File storage with at least ``MEDIA_HEAVY_GB_PER_USER`` stored media per user."""
     if not val(p, "requirements.file_media_storage") or p.users <= 0:
@@ -519,7 +549,7 @@ def media_heavy(p) -> bool:
 def _egress_line(p, components: Mapping[str, Any], extras: list[CostLine], recs) -> tuple[CostLine, float]:
     """Stack-wide internet egress: ``U x 50 MB`` served by the client-facing host, plus (media-heavy)
     ``U x 50 MB x 2`` media downloads served by the object store; free allowances once per provider."""
-    base = _r2(p.users * _costs.EGRESS_GB_PER_USER)
+    base = _r2(p.users * egress_per_user(p))
     heavy = media_heavy(p)
     media = _r2(base * (_costs.EGRESS_MEDIA_FACTOR - 1)) if heavy else 0.0
     fe_host = _rec(components.get("frontend_hosting"))
@@ -563,7 +593,7 @@ def _egress_line(p, components: Mapping[str, Any], extras: list[CostLine], recs)
         parts.append(f"{fmt(_r2(gb))} GB via {' / '.join(labels)} ({prof['note']}; {inc_txt}; "
                      f"{fmt(_r2(billable))} GB billable)")
     total = _r2(base + media)
-    basis = (f"usage: {fmt(total)} GB/month egress = {fmt(_costs.EGRESS_GB_PER_USER * 1000)} MB/user x "
+    basis = (f"usage: {fmt(total)} GB/month egress = {fmt(egress_per_user(p) * 1000)} MB/user x "
              f"{p.users:,} users" + (f" x {_costs.EGRESS_MEDIA_FACTOR} (media-heavy)" if heavy else "")
              + (": " + "; ".join(parts) if parts else ""))
     return CostLine(slot="usage", component_id="egress", name="Internet egress (data transfer out)",
@@ -590,16 +620,26 @@ def _compliance_lines(p, components: Mapping[str, Any], extras: list[CostLine],
     prov = _provider(host)
     host_src = _costs.PROVIDER_PRICING_SOURCE.get(prov or "", ())
     lines: list[CostLine] = []
+    subsumed: list[tuple[str, str]] = []
     for reg in regimes:
         lo, hi, derived = _overhead_band(reg, p.size)
         src = (_costs.COMPLIANCE_OVERHEAD_SOURCES.get(reg, ())
                + _costs.COMPLIANCE_PROVIDER_SOURCES.get(reg, {}).get(prov or "", ()) + host_src)
+        by = next((r for r in _costs.COMPLIANCE_SUBSUMED_BY.get(reg, ()) if r in regimes), None)
+        if by is not None:
+            subsumed.append((reg, by))
+            lines.append(CostLine(slot="compliance", component_id=f"overhead_{reg}", name=f"{reg} compliance overhead",
+                                  min=0, max=0, basis=f"covered by the {by} overhead line (same log retention, backup "
+                                                      f"and scanning tooling; counted once)",
+                                  source_keys=tuple(dict.fromkeys(src)), role="overhead"))
+            continue
         size_txt = "s band (xs uses s)" if p.size == "xs" else (
             "l band x 3 (quote needed)" if derived else f"{p.size} band")
         lines.append(CostLine(slot="compliance", component_id=f"overhead_{reg}", name=f"{reg} compliance overhead",
                               min=lo, max=hi, basis=f"overhead at size {size_txt}: {_costs.COMPLIANCE_OVERHEAD_TEXT[reg]}",
                               source_keys=tuple(dict.fromkeys(src)), role="overhead", derived=derived))
-    notes: list[str] = []
+    notes: list[str] = [f"The {reg} overhead (log retention, backup, vulnerability scanning) is inside the {by} "
+                        "overhead line, so it is counted once." for reg, by in subsumed]
     tooling = [ln for ln in extras
                if _kind_of(_lookup(ln.component_id, recs)) in _costs.COMPLIANCE_TOOLING_SUBS and ln.max > 0]
     targets = [ln for ln in lines if ln.component_id[len("overhead_"):] in _costs.COMPLIANCE_TOOLING_REGIMES]
@@ -614,7 +654,7 @@ def _compliance_lines(p, components: Mapping[str, Any], extras: list[CostLine],
         lines = [new if ln is big else ln for ln in lines]
         notes.append(f"Compliance tooling already in the stack ({', '.join(ln.name for ln in tooling)}) is "
                      f"credited against the {big.name} line so it is not counted twice.")
-    summ = "; ".join(f"{ln.name.split(' ')[0]} USD {_n(ln.min)}-{_n(ln.max)}" for ln in lines)
+    summ = "; ".join(f"{ln.name.split(' ')[0]} USD {_n(ln.min)}-{_n(ln.max)}" for ln in lines if ln.max or ln.min)
     notes.insert(0, f"Compliance overhead added at size {p.size} (plan 7): {summ}. Audit and certification fees "
                     "are excluded.")
     return lines, notes
@@ -663,7 +703,7 @@ def estimate(p, components: Mapping[str, Any], extra_lines: Iterable[CostLine] =
     raw, notes = core_lines(p, comps)
     lines, bundle_notes = _bundle_lines(raw)
     lines, onprem_notes = _onprem(p, comps, lines)
-    lines, mult_notes, (avail_mult, uplift) = _multiply(p, lines, recs)
+    lines, mult_notes, (avail_mult, uplift) = _multiply(p, lines, recs, comps)
     extras = list(extra_lines or ())
     lines = lines + extras
     storage, storage_gb = _storage_line(p, comps, extras)
@@ -718,7 +758,8 @@ def estimate(p, components: Mapping[str, Any], extra_lines: Iterable[CostLine] =
                  f"{fmt(p.data_volume_gb)} GB, file_media_storage=true)" if storage_gb
                  else "0 GB (no file_media_storage)")
     asm.append(f"Usage volumes: object storage {media_txt}; internet egress {fmt(egress_gb)} GB/month "
-               f"({fmt(_costs.EGRESS_GB_PER_USER * 1000)} MB per user per month"
+               f"({fmt(egress_per_user(p) * 1000)} MB per user per month for project.type="
+               f"{val(p, 'project.type')}"
                + (f" x {_costs.EGRESS_MEDIA_FACTOR} for media-heavy use" if media_heavy(p) else "")
                + f"), priced at USD {_n(egress.min)}-{_n(egress.max)} after free allowances.")
     asm.extend(over_notes)

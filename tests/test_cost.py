@@ -86,9 +86,9 @@ class TestCoreLines(unittest.TestCase):
         self.assertEqual(bundle.role, "database")
         core = [ln for ln in c.lines if ln.role in ("compute", "database")]
         self.assertEqual((sum(ln.min for ln in core), sum(ln.max for ln in core)), (45, 190))   # + Vercel 20-80
-        # + egress (30,000 x 0.05 = 1,500 GB, Vercel Pro 1 TB included, 500 GB x 0.15 = 75)
-        # + object storage fallback 40 GB x 0.023-0.026 + dpdp overhead 0-50
-        self.assertEqual((c.min, c.max), (120, 320))
+        # + egress (marketplace 30 MB/user: 30,000 x 0.03 = 900 GB, inside Vercel Pro's 1 TB -> 0)
+        # + object storage fallback 40 GB x 0.023-0.026 + dpdp overhead 0-20 at s
+        self.assertEqual((c.min, c.max), (46, 210))
         self.assertEqual(c.verdict, "tight")
         w = next(w for w in c.warnings if w["code"] == "BUDGET_TIGHT")
         self.assertEqual(w["severity"], "warning")
@@ -148,7 +148,7 @@ class TestBudget(unittest.TestCase):
         self.assertEqual(c.verdict, "exceeded")
         w = next(w for w in c.warnings if w["code"] == "BUDGET_EXCEEDED")
         self.assertEqual(w["severity"], "critical")
-        self.assertIn("USD 120-320", w["message"])
+        self.assertIn("USD 46-210", w["message"])
 
     def test_headroom_and_within(self):
         s = comps(backend="aspnet_core", database="sqlserver", database_offering="sqlserver__azure",
@@ -192,7 +192,7 @@ class TestBudget(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertEqual(set(c.to_output()), {"min", "max", "assumptions"})
         bv = c.budget_verdict()
-        self.assertEqual((bv["verdict"], bv["estimate_min"], bv["estimate_max"]), ("tight", 120, 320))
+        self.assertEqual((bv["verdict"], bv["estimate_min"], bv["estimate_max"]), ("tight", 46, 210))
         json.dumps(c.trace())
 
     def test_assumptions_always(self):
@@ -294,6 +294,42 @@ class TestTraffic(unittest.TestCase):
         self.assertIn("Traffic pattern steady: no traffic multiplier.", c.assumptions)
 
 
+class TestCalibratedMultipliers(unittest.TestCase):
+    """Calibration 14 Nov: factors on the relevant lines only, the max not compounded."""
+
+    def test_availability_and_traffic_max_not_compounded(self):
+        c = estimate(prof("P4"), comps(**P4_CORE))                  # 99.95 (x1.5) and spiky (min x0.8, max x1.4)
+        lo, hi = kb.get("aws_ecs_fargate")["cost"]["m"]
+        h = line(c, "aws_ecs_fargate")
+        self.assertEqual(h.multiplier, (1.2, 1.5))                  # min 1.5 x 0.8; max = larger of 1.5 and 1.4
+        self.assertEqual((h.min, h.max), (round(lo * 1.2, 2), round(hi * 1.5, 2)))
+        self.assertIn("not their product", h.basis)
+        hi99 = line(estimate(prof("P4", requirements__availability="99.99"), comps(**P4_CORE)), "aws_ecs_fargate")
+        self.assertEqual(hi99.multiplier, (round(2.2 * 0.8, 4), 2.2))
+
+    def test_static_host_takes_no_availability_or_traffic_factor(self):
+        spec = dict(P4_CORE, frontend="angular", frontend_hosting="aws_amplify")
+        c = estimate(prof("P4"), comps(**spec))                     # 99.95, spiky, SPA on Amplify
+        lo, hi = kb.get("aws_amplify")["cost"]["m"]
+        amp = line(c, "aws_amplify")
+        self.assertEqual((amp.min, amp.max, amp.multiplier), (lo, hi, (1.0, 1.0)))
+        self.assertTrue(any(a.startswith("No availability factor on AWS Amplify Hosting") for a in c.assumptions))
+        self.assertTrue(any(a.startswith("No traffic factor on AWS Amplify Hosting") for a in c.assumptions))
+        ssr = estimate(prof("P4"), comps(**dict(spec, frontend="nextjs")))   # SSR functions still burst
+        self.assertEqual(line(ssr, "aws_amplify").multiplier, (0.8, 1.4))
+
+    def test_egress_per_user_by_project_type(self):
+        self.assertEqual(costs.egress_gb_per_user("fintech"), 0.015)
+        self.assertEqual(costs.egress_gb_per_user("content_site"), 0.05)
+        self.assertEqual(costs.egress_gb_per_user("web_app"), costs.EGRESS_GB_PER_USER)
+        self.assertEqual(costs.egress_gb_per_user(None), costs.EGRESS_GB_PER_USER)
+        from stacksense.schema import PROJECT_TYPES
+        self.assertEqual(sorted(costs.EGRESS_GB_PER_USER_BY_TYPE), sorted(PROJECT_TYPES))
+        c = estimate(prof("P4", scale__traffic_pattern="steady"), comps(**P4_CORE))
+        self.assertEqual(c.egress_gb, 300_000 * 0.015)
+        self.assertTrue(any("15 MB per user per month for project.type=fintech" in a for a in c.assumptions))
+
+
 class TestUsage(unittest.TestCase):
     def test_storage_fallback_rates(self):
         p = prof("P6")                                              # 100 GB data, file_media_storage
@@ -323,7 +359,7 @@ class TestUsage(unittest.TestCase):
         p = prof("P3", scale__traffic_pattern="steady")              # 50,000 users, not media-heavy
         c = estimate(p, comps(backend="fastify", hosting="aws_ecs_fargate"))
         e = line(c, "egress")
-        gb = 50_000 * costs.EGRESS_GB_PER_USER
+        gb = 50_000 * costs.egress_gb_per_user("realtime_collab")
         self.assertFalse(cost.media_heavy(p))
         self.assertEqual(c.egress_gb, gb)
         self.assertEqual((e.min, e.max), (round((gb - 100) * 0.09, 2), round((gb - 100) * 0.11, 2)))
@@ -334,17 +370,19 @@ class TestUsage(unittest.TestCase):
         self.assertEqual((line(small, "egress").min, line(small, "egress").max), (0, 0))       # 75 GB < 100 GB free
         p2 = prof("P2")
         v = line(estimate(p2, comps(**P2_SUPABASE)), "egress")       # Vercel serves the web: 1 TB included at s
-        self.assertEqual((v.min, v.max), (75.0, 75.0))
+        self.assertEqual((v.min, v.max), (0, 0))                     # 900 GB (30 MB x 30,000) < 1 TB
+        big = line(estimate(prof("P2", scale__users_12_months=50_000), comps(**P2_SUPABASE)), "egress")
+        self.assertEqual((big.min, big.max), (75.0, 75.0))           # 1,500 GB - 1 TB = 500 GB x 0.15
         cf = line(estimate(p2, comps(frontend="nextjs", frontend_hosting="cloudflare_pages",
                                      backend="supabase", hosting="supabase_cloud")), "egress")
         self.assertEqual((cf.min, cf.max), (0, 0))                   # Cloudflare: no egress fees
         do = line(estimate(p2, comps(backend="django", hosting="do_app_platform")), "egress")
-        self.assertEqual((do.min, do.max), (round((1500 - 100) * 0.02, 2),) * 2)
+        self.assertEqual((do.min, do.max), (round((900 - 100) * 0.02, 2),) * 2)
 
     def test_egress_media_heavy_r2(self):
         p = prof("P6")                                               # 40 MB stored per user -> media-heavy
         self.assertTrue(cost.media_heavy(p))
-        base = 2000 * costs.EGRESS_GB_PER_USER
+        base = 2000 * costs.egress_gb_per_user("other")
         aws = estimate(p, comps(backend="django", hosting="aws_ecs_fargate"),
                        extra_lines=[kb_line("amazon_s3", "storage", 1, 2, "usage")])
         self.assertEqual(aws.egress_gb, base * 3)
@@ -377,8 +415,13 @@ class TestCompliance(unittest.TestCase):
 
     def test_regimes_by_size(self):
         c = estimate(prof("P4"), comps(**P4_CORE))                   # m: pci, iso, dpdp, rbi
-        self.assertEqual(self.overhead(c), {"pci_dss": (150, 600), "iso27001": (50, 300), "dpdp": (0, 50),
+        # iso27001 tooling (log retention, backup, scanning) is inside the pci_dss line: counted once
+        self.assertEqual(self.overhead(c), {"pci_dss": (150, 600), "iso27001": (0, 0), "dpdp": (0, 50),
                                             "rbi_localisation": (0, 0)})
+        self.assertIn("covered by the pci_dss", line(c, "overhead_iso27001").basis)
+        self.assertTrue(any("iso27001 overhead" in a and "counted once" in a for a in c.assumptions))
+        alone = estimate(prof("P4", compliance=["iso27001", "soc2"]), comps(**P4_CORE))
+        self.assertEqual(self.overhead(alone), {"iso27001": (50, 300), "soc2": (0, 0)})
         for ln in c.lines:
             if ln.slot == "compliance":
                 self.assertEqual(ln.role, "overhead")
@@ -406,7 +449,7 @@ class TestCompliance(unittest.TestCase):
         self.assertEqual((pci.min, pci.max), (60, 60))               # 150-90, max(60, 600-600)
         self.assertLessEqual(pci.min, pci.max)
         self.assertIn("already priced", pci.basis)
-        self.assertEqual(self.overhead(c)["iso27001"], (50, 300))
+        self.assertEqual(self.overhead(c)["iso27001"], (0, 0))
 
 
 class TestOnPrem(unittest.TestCase):
@@ -525,31 +568,32 @@ class TestPublicRanges(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_p2(self):
-        # measured 14 Nov: 70-300 (tight); plan 90-220. Core 37-160 + egress 28 + Spaces 5 + dpdp 0-50 + CI/logs.
+        # calibrated 14 Nov: 58-260 (tight); plan 90-220 assumed Vercel Pro (USD 20/seat); DO App Platform 12-50
+        # + Supabase 25-110 + egress 16 + Spaces 5 + dpdp 0-20 + CI/logs 0-60.
         self.check("P2", 90, 220)
 
     @unittest.expectedFailure
     def test_p3(self):
-        # measured 14 Nov: 770-3,800 (tight); plan 500-1,400. Amplify + ECS (spiky x0.8/x1.4) + RDS + egress 216-264
-        # + supporting bands (Hocuspocus, CloudWatch, SQS, CI) push the max far above 1,400.
+        # calibrated 14 Nov: 680-3,600 (tight); plan 500-1,400. Size m KB bands: ECS 250-900 (spiky max x1.4),
+        # RDS 160-700, CloudWatch 60-500, Hocuspocus 40-250, SQS/CI 150 each; egress 126-154 (30 MB/user).
         self.check("P3", 500, 1400)
 
     @unittest.expectedFailure
     def test_p4(self):
-        # measured 14 Nov: 2,800-11,000 (tight); plan 2,000-5,000 within. EKS at 99.95 x1.5 and spiky x1.4,
-        # RDS x2, egress 15,000 GB at AWS 1,341-1,639, PCI/ISO overhead.
+        # calibrated 14 Nov: 1,500-6,300 (tight); plan 2,000-5,000 within. 16 lines each 3-10x wide: ECS x1.5
+        # (max = larger factor), RDS Multi-AZ x2, egress 4,500 GB (15 MB/user) 396-484, ISO inside PCI.
         self.check("P4", 2000, 5000, "within")
 
     @unittest.expectedFailure
     def test_p5(self):
-        # measured 14 Nov: 120-460 (tight); plan 80-250 within. Azure PostgreSQL 30-150 + App Service 60-150
-        # + iso27001 overhead 20-80 (less Key Vault) + App Insights.
+        # calibrated 14 Nov: 130-560 (tight); plan 80-250 within. Azure SQL (reused SQL Server) KB offering band
+        # 40-250 at s (plan 7 table: 15-150) + App Service 60-150 + iso27001 15-50 + App Insights 10-60.
         self.check("P5", 80, 250, "within")
 
     @unittest.expectedFailure
     def test_p6(self):
-        # measured 14 Nov: 45-320 (tight); plan 40-110. DO App Platform spiky max x1.4 + DO Postgres 30-120 +
-        # dpdp 0-50 + maplibre/CI/logs bands.
+        # calibrated 14 Nov: 45-290 (tight); plan 40-110. DO Postgres offering 30-120 at s alone exceeds 110;
+        # + App Platform 12-50 (spiky max x1.4) + dpdp 0-20 + MapLibre/CI/logs bands 0-70.
         self.check("P6", 40, 110)
 
 

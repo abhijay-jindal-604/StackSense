@@ -87,6 +87,7 @@ T: dict[str, Any] = {
         "blazor_aspnet": 1.5,             # Blazor with ASP.NET Core (one language)
         "jvm_containers": 1.0,            # Spring Boot on ECS/EKS (BACKEND_HOST_PAIRS_JVM)
         "batteries_postgres": 1.0,        # Django/Rails/Laravel with PostgreSQL
+        "dotnet_sqlserver": 1.0,          # ASP.NET Core with SQL Server (EF Core first-party provider)
         "supabase_client": 1.0,           # Supabase with Next.js or React Native
         "workers_d1": 1.5,                # Workers with D1
         "same_cloud": 1.0,                # host and managed database on one provider
@@ -102,11 +103,16 @@ T: dict[str, Any] = {
     "client_shared_language": 2.0,
     "one_codebase": 2.5, "one_codebase_max_team": 6,
     "two_natives": -2.0, "two_natives_max_team": 3,
+    "partner_weight": 0.5,            # joined native pair = mean of the two toolkits' layer scores
     "web_reuse": 1.0,
     # plan 7 budget fallback (values shared with kb.costs)
     "budget_fallback_top_n": _costs_kb.BUDGET_FALLBACK_TOP_N,
     "budget_fallback_accept_ratio": _costs_kb.BUDGET_FALLBACK_ACCEPT_RATIO,
     "budget_cheapest_core": 10,       # cheapest mode: also price the 10 passed combinations cheapest at core
+    # cheapest mode also enumerates combinations of the cheapest databases / hosts by KB band (calibration
+    # 14 Nov: at very low budgets the budget_fit floor ties every paid host, so the score-ranked top K
+    # could miss the cheapest feasible stack and the chosen minimum rose as the budget fell)
+    "budget_cheapest_k": 6, "budget_cheapest_hosts": 10,
 }
 
 FRAMEWORK_HOST_PAIRS = {("nextjs", "vercel")}
@@ -116,6 +122,7 @@ BACKEND_HOST_PAIRS = {("aspnet_core", "azure_app_service")}
 BACKEND_HOST_PAIRS_JVM = {("spring_boot", "aws_ecs_fargate"), ("spring_boot", "amazon_eks")}
 BATTERIES_BACKENDS = ("django", "laravel", "rails")
 BATTERIES_DATABASES = ("postgres",)
+DOTNET_SQLSERVER_PAIRS = {("aspnet_core", "sqlserver"), ("azure_functions", "sqlserver")}
 SUPABASE_CLIENTS = ("nextjs", "react_native_expo")
 WORKERS_PAIRS = {("cloudflare_workers_hono", "cloudflare_d1")}
 REACT_WEB = ("nextjs", "react_router", "react_vite")
@@ -740,6 +747,9 @@ def synergies(fe: ClientPart | None, be: Scored, db: Scored, host: Scored, fe_ho
     if b["id"] in BATTERIES_BACKENDS and d["id"] in BATTERIES_DATABASES:
         out.append(_syn("batteries_postgres", (), f"{b['name']} has first-class {d['name']} support "
                                                   f"(migrations, full-text search, JSON fields)"))
+    if (b["id"], d["id"]) in DOTNET_SQLSERVER_PAIRS:
+        out.append(_syn("dotnet_sqlserver", (), f"{b['name']} pairs with {d['name']} through Entity Framework "
+                                                f"Core's first-party provider (one vendor for runtime, ORM and engine)"))
     if b["id"] == "supabase" and f and f["id"] in SUPABASE_CLIENTS:
         out.append(_syn("supabase_client", (), f"Supabase ships a maintained client and auth helpers "
                                                f"for {f['name']}"))
@@ -850,6 +860,16 @@ def codebase_terms(part: ClientPart, p) -> list[Contribution]:
             out.append(_contrib("one_codebase", T["one_codebase"], (F_PLAT, F_TEAM),
                                 f"{s['name']} covers android and ios from one codebase for team.size={team} "
                                 f"(+{scoring.fmt(T['one_codebase'])})."))
+        if part.partner is not None and T["partner_weight"]:
+            # each native toolkit serves one platform: the pair scores as the weighted mean of both, so a
+            # poor fit on one platform (e.g. a language the team does not know) is not hidden by the other
+            delta = round(T["partner_weight"] * (part.partner.total - part.scored.total), 2)
+            if delta:
+                out.append(_contrib("one_codebase", delta, (F_PLAT, F_LANG),
+                                    f"{s['name']} ({scoring.fmt(round(part.scored.total, 2))}) is joined by "
+                                    f"{part.partner.tech['name']} ({scoring.fmt(round(part.partner.total, 2))}) for "
+                                    f"{', '.join(part.partner_platforms)}; the pair scores as the mean of both "
+                                    f"toolkits ({scoring.fmt(delta)})."))
         if part.partner is not None and team <= T["two_natives_max_team"]:
             out.append(_contrib("one_codebase", T["two_natives"], (F_PLAT, F_TEAM),
                                 f"two native apps ({s['name']} and {part.partner.tech['name']}) for "
@@ -1089,6 +1109,37 @@ def _core_min(combo: Combo, p) -> int:
     return _cost.estimate(p, combo.stack()).min
 
 
+def _cheap_key(s: Scored, size: str):
+    b = _band(s.tech, size)
+    lo, hi = (b[0], b[1]) if b else (float("inf"), float("inf"))
+    return (lo, (lo + hi) / 2, s.tech["id"])
+
+
+def cheapest_combinations(ranked: Mapping[str, list], p) -> list[Combo]:
+    """Compatible combinations built from the cheapest candidates by KB band (plan 7 "keep the cheapest
+    feasible combination"): the ``T['budget_cheapest_k']`` cheapest databases and
+    ``T['budget_cheapest_hosts']`` cheapest hosts at the profile size, with the score-ranked clients and
+    back ends (frameworks cost nothing themselves). Independent of the layer budget terms, so the
+    cheapest stack the fallback can find does not depend on how the floor of ``budget_fit`` ranks
+    candidates at a given budget."""
+    for layer in ("backend", "database", "hosting"):
+        if not ranked.get(layer):
+            return []
+    primary = _primary_layer(ranked, p)
+    k = T["K"]
+    fes: list = [None]
+    if primary is not None:
+        fes = _client_options(primary, list(ranked[primary]), p)[:k]
+        if not fes:
+            return []
+    bes = shortlist(list(ranked["backend"]), k)
+    dbs = sorted(ranked["database"], key=lambda s: _cheap_key(s, p.size))[: T["budget_cheapest_k"]]
+    hos = sorted(ranked["hosting"], key=lambda s: _cheap_key(s, p.size))[: T["budget_cheapest_hosts"]]
+    stats = {"considered": 0}
+    passed = _enumerate((fes, bes, dbs, hos), list(ranked["hosting"]), p, {}, stats, {}, {})
+    return _sort(passed, p)
+
+
 def accept_floor(best_score: float) -> float:
     """Lowest combo_score the fallback accepts: ``ratio x best`` (for a negative best, the same
     distance below it)."""
@@ -1133,6 +1184,12 @@ def apply_budget(result: ComboResult, ranked: Mapping[str, list], p, cost_of) ->
         in_pool = {c.ids for c, _ in priced}
         rank = {c.ids: i for i, c in enumerate(result.passed_all or result.pool)}
         outside = [c for c in (result.passed_all or ()) if c.ids not in in_pool]
+        seen = in_pool | {c.ids for c in outside}
+        for c in cheapest_combinations(ranked, p):
+            if c.ids not in seen:
+                seen.add(c.ids)
+                rank.setdefault(c.ids, len(rank))
+                outside.append(c)
         outside.sort(key=lambda c: (_core_min(c, p), rank[c.ids]))
         for combo in outside[: T["budget_cheapest_core"]]:
             combo = combo if combo.clients else pick_clients(combo, ranked, p)
