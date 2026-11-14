@@ -328,7 +328,7 @@ function heroSection() {
   const nw = res ? (res.warnings || []).filter((w) => w.severity !== 'info').length : 0;
   const tp = h('div', { class: 'tp' },
     h('div', { class: 'layer l-soot' }), h('div', { class: 'layer l-weld' }), h('div', { class: 'layer l-ink' }), h('div', { class: 'layer l-paper' }),
-    h('div', { class: 'inp' },
+    h('div', { class: 'in' },
       h('h1', { html: 'Every answer <em>bolts on</em> a part.' }),
       h('p', { class: 'lede' }, 'Your project rolls in as a bare chassis. ', h('span', {}, 'Tell the bay your team, budget, deadline and the laws you answer to; it fits each part and tags it with the answer that put it there.')),
       h('div', { class: 'acts' },
@@ -968,7 +968,7 @@ const XC = { frontend: { pin: [153, 104], x: 10, y: 70, w: 310, h: 160, ey: 60 }
   database: { pin: [230, 220], x: 572, y: 180, w: 310, h: 160, ey: 60 }, hosting: { pin: [300, 628], x: 572, y: 540, w: 310, h: 160, ey: 60 } };
 function calloutInfo(res, layer) {
   const it = res.stack[layer];
-  if (layer === 'database') { const g = gaugeOf(res); return ['<b>band</b> ' + band(res.estimated_monthly_cost_usd), '<b>needle</b> ' + usd(g.budget) + ' budget']; }
+  if (layer === 'database') { const g = gaugeOf(res); return ['<b>band</b> ' + band(res.estimated_monthly_cost_usd), '<b>needle</b> ' + usd(g.budget)]; }
   return ((it && it.driven_by) || []).slice(0, 2).map((p) => { const v = inputValue(p); return '<b>' + esc(p.split('.').pop()) + '</b> ' + esc(v === undefined ? '(default)' : v.length > 24 ? v.slice(0, 22) + '…' : v); });
 }
 function drawExploded(res, xp) {
@@ -1165,7 +1165,8 @@ function viewInvalid(res) {
   const first = errs.map((e) => S.fields.find((f) => f.path === String(e.field).replace(/\[.*$/, ''))).find(Boolean);
   const W = 480, H = 520;
   const part = (k, x, y, r, s) => `<g transform="translate(${x} ${y}) rotate(${r}) scale(${s})"><use href="#fbp-${k}" transform="translate(-200 -${FB.PART[k].at[1]})"/></g>`;
-  const tag = (x1, y1, x2, y2, t) => `<path d="M${x1} ${y1} Q${(x1 + x2) / 2} ${Math.max(y1, y2) + 30} ${x2} ${y2}" fill="none" stroke="var(--ink)" stroke-width="1.6"/><circle cx="${x1}" cy="${y1}" r="3.5" fill="var(--crit)" stroke="#0B0F14" stroke-width="1.5"/>
+  const tag = (x1, y1, x2, y2, t) => { x2 = Math.max(8, Math.min(x2, W - 14 - (t.length * 7.2 + 16))); return tag0(x1, y1, x2, y2, t); };
+  const tag0 = (x1, y1, x2, y2, t) => `<path d="M${x1} ${y1} Q${(x1 + x2) / 2} ${Math.max(y1, y2) + 30} ${x2} ${y2}" fill="none" stroke="var(--ink)" stroke-width="1.6"/><circle cx="${x1}" cy="${y1}" r="3.5" fill="var(--crit)" stroke="#0B0F14" stroke-width="1.5"/>
     <g transform="translate(${x2 - 4} ${y2 - 2}) rotate(${(x2 % 7) - 3})"><rect width="${t.length * 7.2 + 16}" height="24" fill="var(--crit)" stroke="#0B0F14" stroke-width="2"/><circle cx="8" cy="12" r="3" fill="#0B0F14"/><text x="15" y="16.5" ${MONO} font-size="12" font-weight="500" fill="#11161D">${esc(t)}</text></g>`;
   const bin = `<g><path d="M70 300 L410 300 L388 470 L92 470 Z" fill="#3A4450" stroke="#0B0F14" stroke-width="3.5"/>
     <path d="M330 300 L410 300 L388 470 L330 470 Z" fill="#2C3540"/><path d="M330 300 L410 300 L388 470 L330 470 Z" fill="url(#fb-dots)"/>
@@ -1451,7 +1452,7 @@ function viewAbout() {
   const sco = res ? partScore(res, 'backend') : null;
   const tt = be && traceTop(res, idsOf(be)[0]);
   const cut = tt && (tt.L.rejected || [])[0];
-  const drv = ((be && be.driven_by) || []).map((p) => { const v = getp(sc || {}, p); return v === undefined ? null : Array.isArray(v) ? v.join(', ') : String(v); }).filter(Boolean).slice(0, 3);
+  const drv = ((be && be.driven_by) || []).map((p) => { const v = getp(sc || {}, p); if (v === undefined) return null; const t = Array.isArray(v) ? v.join(', ') : String(v); return /^[\d.]+$|^(true|false)$/.test(t) ? p.split('.').pop().split('_')[0] + ' ' + t : t; }).filter(Boolean).slice(0, 3);
   const W = 1200, H = 380, BY = 290;
   const crate = (x, y, t, c) => `<g transform="translate(${x} ${y})"><rect x="-30" y="-36" width="60" height="36" fill="${c || C.s1}" stroke="#0B0F14" stroke-width="2.6"/><path d="M-30 -24 H30" stroke="#0B0F14" stroke-width="1.6"/><text x="0" y="-8" text-anchor="middle" ${MONO} font-size="10.5" font-weight="500" fill="#11161D">${esc(String(t).slice(0, 9))}</text></g>`;
   const rollers = [...Array(30)].map((_, i) => `<circle cx="${30 + i * 39}" cy="${BY + 12}" r="9" fill="${C.s3}" stroke="#0B0F14" stroke-width="2"/><circle cx="${30 + i * 39}" cy="${BY + 12}" r="2.5" fill="${C.sh}"/>`).join('');

@@ -141,3 +141,18 @@ details.json .row{margin-top:10px}
 .bc .btxt b{font-family:var(--body)}
 .review>*{min-width:0}
 td code{overflow-wrap:anywhere}
+.errt td:first-child code{overflow-wrap:normal;white-space:nowrap}
+.errt th:nth-child(2){white-space:nowrap}
+.nf .btn,.btn.s{white-space:nowrap}
+.sens td code{white-space:nowrap;overflow-wrap:normal}
+.xco .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.affects{flex-wrap:wrap}.affects code{overflow-wrap:anywhere}
+.subtabs,.ptabs{overflow-x:auto;max-width:100%}
+.hd .acts{max-width:100%;overflow-x:auto}
+@media (max-width:900px){
+  table.warns tr,table.alt tr,table.nf tr{display:block;padding:10px 0;box-shadow:inset 0 -1px 0 var(--line)}
+  table.warns td,table.alt td,table.nf td{display:block;border:0;padding:3px 4px;width:auto!important;text-align:left!important}
+}
+.chips .chip,.chips a.chip{max-width:100%;overflow-wrap:anywhere}
+.xco .box>span:last-child{min-width:0;overflow:hidden}
+.detail{overflow-wrap:anywhere}.dname{flex-wrap:wrap}.detail-wrap{min-width:0}
