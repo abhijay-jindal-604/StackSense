@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -284,6 +285,13 @@ def _cmd_kb(args) -> int:
     return 1 if problems else 0
 
 
+def _env_port() -> int:
+    try:
+        return int(os.environ.get("STACKSENSE_PORT", "8765"))
+    except ValueError:
+        return 8765
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="stacksense", description="StackSense tech stack recommendation engine")
     sub = ap.add_subparsers(dest="command", metavar="command")
@@ -302,7 +310,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=_cmd_selftest)
     sv = sub.add_parser("serve", help="start the local web UI and JSON API")
     sv.add_argument("--host", default="127.0.0.1")
-    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--port", type=int, default=_env_port(),
+                    help="default 8765, or STACKSENSE_PORT from the environment")
     sv.add_argument("--open", action="store_true", help="open the browser")
     sv.set_defaults(func=_cmd_serve)
     k = sub.add_parser("kb", help="knowledge base: export, stats, check")
