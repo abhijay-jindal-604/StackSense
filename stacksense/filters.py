@@ -114,6 +114,17 @@ RULE_CODES = {"F1": "status", "F2": "deployment", "F3": "cloud", "F3b": "cloud_n
 FRONTEND_LAYERS = ("frontend_web", "frontend_mobile", "frontend_desktop", "frontend_game")
 INFRA_LAYERS = ("hosting", "database", "cache", "queue", "storage", "cdn", "search", "ml", "observability")
 NO_PERSONAL_DATA_LAYERS = ("cdn", "ci_cd")
+# Processor-only services: they handle transactional data in flight (a payment, an SMS one-time password,
+# a push notification) rather than storing the application's records. layer -> record kinds (None = all
+# kinds), with the plain-language name of the data they process. Under data_residency us/eu a processor
+# whose region cell is UNKNOWN (no vendor page confirms or denies an in-region option) passes F4 with the
+# RESIDENCY_PROCESSOR_UNVERIFIED warning (:func:`processor_residency_note`); a verified [] cell, every
+# other residency (india, other) and F5 still fail closed.
+PROCESSOR_ONLY_LAYERS: dict[str, dict[str | None, str]] = {
+    "payments": {None: "payment"},
+    "other": {"sms": "SMS one-time password", "push": "push notification"},
+}
+PROCESSOR_RESIDENCIES = ("eu", "us")
 SAAS_ALLOWED_SELF_HOSTED_VM = ("payments", "other")
 SAAS_ALLOWED_ON_PREMISE = ("payments",)
 OPEN_SOURCE_EXEMPT = ("hosting", "payments")
@@ -392,11 +403,51 @@ def _f4_cells(rec, p, layer, self_mode):
     ids = [i for i in ids if i != "*"]   # '*' is true only for self-hosted mode
     if ids:
         return None
+    if _processor_unknown(rec, p, layer):
+        return None
     rn = RESIDENCY_NAMES[r]
     fact = (f"no {rn} region confirmed on the vendor's pages, so treated as unavailable (fail closed)"
             if unverified else f"vendor region list verified: {rn} none")
     return _rej(rec, layer, "F4", _res_fields(p), f"{name} has no {rn} region ({fact}); violates "
                 f"{_residency_text(p)}.", src, unverified, residency=r)
+
+
+def _processor_kind(rec, layer) -> str | None:
+    """The data a processor-only record handles ("payment", "notification"), or None."""
+    entry = PROCESSOR_ONLY_LAYERS.get(layer)
+    if entry is None or _is_offering(rec):
+        return None
+    return entry.get(None) or entry.get(rec.get("kind"))
+
+
+def _processor_unknown(rec, p, layer) -> bool:
+    """True when ``rec`` is a processor-only service, the residency is us/eu and its vendor region cell for
+    that residency is UNKNOWN (a verified ``[]`` is not unknown)."""
+    if p.effective_residency not in PROCESSOR_RESIDENCIES or _processor_kind(rec, layer) is None:
+        return False
+    rk, _ = _bound(rec)
+    if rk is not None:
+        return _regions.regions_for(rk, p.effective_residency) == _regions.UNKNOWN
+    return p.effective_residency not in (rec.get("regions") or {})
+
+
+def processor_residency_note(rec, p, layer=None) -> str | None:
+    """RESIDENCY_PROCESSOR_UNVERIFIED text when ``rec`` passes F4 only through the processor-only policy
+    (:data:`PROCESSOR_ONLY_LAYERS`), else None."""
+    layer = layer or rec["layer"]
+    if not _processor_unknown(rec, p, layer) or self_hosted_mode(rec, p):
+        return None
+    if not handles_personal_data(rec, p, layer) or _runs_inside_host(rec, p):
+        return None
+    ids, _, _ = _region_cells(rec, p)
+    if [i for i in ids if i != "*"]:
+        return None
+    r = p.effective_residency
+    rn = RESIDENCY_NAMES[r]
+    dpa = "data processing agreement (with Standard Contractual Clauses)" if r == "eu" else "data processing agreement"
+    return (f"{rec.get('name', rec['id'])} does not commit to keeping data in the {rn} (no vendor page confirms "
+            f"an in-region option for data_residency={r}); it may process {_processor_kind(rec, layer)} data "
+            f"outside the region. Sign its {dpa} and keep regulated records out of the payload.")
 
 
 def region_portable(rec, layer) -> bool:

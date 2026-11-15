@@ -661,7 +661,7 @@ def summary(style_phrase: str, stack: Mapping[str, Any], p, *, drivers: Iterable
     db_text = "no database" if db.startswith("None") else db
     s1 = f"{style_phrase}: {fe} with {be_text} and {db_text}, hosted on {ho}."
     drv = [_value_text(p, f) for f in drivers]
-    rel = list(relaxed)
+    rel = [r.strip().rstrip(".") for r in relaxed]
     if not drv and not rel:
         return s1
     s2 = "Driven mainly by " + " and ".join(drv) if drv else "Constraints relaxed"

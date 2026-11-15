@@ -599,7 +599,9 @@ RECORDS = [
     _fw("nakama", "Nakama", "framework", ["go", "typescript", "javascript"], _attrs(4, 4, 4, 4, 3, 3, 2, 2, 1),
         caps=["game_server", "websocket", "long_lived_conn", "realtime_builtin", "admin_ui", "auth_builtin",
               "storage_builtin"],
-        best_for=["gaming", "social"], avoid_for=["ecommerce", "content_site", "internal_tool"],
+        # social = in-game friends, groups and chat, not a social-network product (review 14 Nov: with the
+        # PostgreSQL/CockroachDB coupling a game server out-ranked general back ends for a social network)
+        best_for=["gaming"], avoid_for=["ecommerce", "content_site", "internal_tool", "social"],
         runtime="go", ops_burden=3, licence="Apache-2.0",
         strengths=["Open-source game server with accounts, friends, leaderboards, matchmaking, chat and realtime multiplayer",
                    "Server logic in Go, TypeScript or Lua; Unity, Godot and Unreal client SDKs"],

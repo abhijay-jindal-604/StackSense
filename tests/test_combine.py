@@ -665,9 +665,15 @@ class BudgetFallbackTest(unittest.TestCase):
         self.assertEqual(combine.accept_floor(-10.0), -11.5)
 
     def test_no_fit_keeps_cheapest(self):
-        r = self.run_with(lambda i: (1000 - i, 2000), 10)
+        r = self.run_with(lambda i: (1000, 2000) if i == 0 else (600 - i, 900), 10)
         self.assertEqual(r.budget.mode, "cheapest")
         self.assertLess(r.budget.cost.min, 1000)
+        self.assertGreaterEqual(round(r.best.score, 4),
+                                combine.accept_floor(self.res.best.score, combine.T["budget_cheapest_accept_ratio"]))
+        # review 14 Nov: a saving of a few dollars that still misses the budget does not displace the best
+        r1 = self.run_with(lambda i: (1000 - i, 2000), 10)
+        self.assertEqual(r1.best.ids, self.res.best.ids)
+        self.assertIsNone(r1.budget.displaced)
         r2 = self.run_with(lambda i: (300, 400), 10)            # all equal: the best rank is kept
         self.assertEqual(r2.best.ids, self.res.best.ids)
         self.assertEqual(r2.budget.mode, "cheapest")

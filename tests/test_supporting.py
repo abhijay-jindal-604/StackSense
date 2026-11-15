@@ -190,7 +190,11 @@ class HardConstraintTests(unittest.TestCase):
         for s in res.selections:
             slot = supporting.SLOT_BY_ID[s.slot]
             self.assertIsNone(filters.check(s.tech, p, slot.kb_layer), s.id)
-            self.assertEqual(record_violations(s.tech, slot.kb_layer, p), [], s.id)
+            v = record_violations(s.tech, slot.kb_layer, p)
+            # processor-only residency passes are allowed when the selection carries its warning
+            if s.pass_notes:
+                v = [x for x in v if not x[0].startswith("processor:")]
+            self.assertEqual(v, [], s.id)
 
     def everything(self, **over):
         return scenario(**{"requirements.auth": "phone_otp", "requirements.payments": True,

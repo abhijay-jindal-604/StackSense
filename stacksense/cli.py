@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import engine, output
+from . import io as ssio
 from .io import load_scenarios, output_name, write_output
 from .validate import validate
 
@@ -75,8 +76,20 @@ def _run_exit_code(code: int, problems, result: dict) -> int:
     return code
 
 
+def _run_inputs(path: str):
+    """Scenarios for ``run``: ``-`` reads standard input; a missing path is an error (None)."""
+    if path == "-":
+        return ssio.load_bytes("stdin.json", sys.stdin.buffer.read())
+    if not Path(path).exists():
+        _err(f"{path}: path does not exist; nothing was run")
+        return None
+    return load_scenarios(Path(path))
+
+
 def _cmd_run(args) -> int:
-    loaded_list = load_scenarios(Path(args.path))
+    loaded_list = _run_inputs(args.path)
+    if loaded_list is None:
+        return 1
     out_dir = Path(args.output)
     code = 0
     used: set = set()

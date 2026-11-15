@@ -77,6 +77,13 @@ def _load_file(path: Path) -> list[LoadedScenario]:
         data = path.read_bytes()
     except OSError as e:
         return [_fail(name, f"Cannot read file: {e.strerror or e}")]
+    return load_bytes(name, data)
+
+
+def load_bytes(name: str, data: bytes) -> list[LoadedScenario]:
+    """Parse scenario JSON bytes (a file's content or standard input) under the label ``name``."""
+    if len(data) > MAX_BYTES:
+        return [_fail(name, f"Input is {len(data)} bytes; the limit is {MAX_BYTES} bytes (5 MB).")]
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as e:
