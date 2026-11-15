@@ -154,4 +154,4 @@ td code{overflow-wrap:anywhere}
 .chips .chip,.chips a.chip{max-width:100%;overflow-wrap:anywhere}
 .xco .box>span:last-child{min-width:0;overflow:hidden}
 .detail{overflow-wrap:anywhere}.dname{flex-wrap:wrap}.detail-wrap{min-width:0}
-.alt{table-layout:fixed}.alt td:first-child{width:30%;overflow-wrap:break-word;hyphens:auto}.alt td:nth-child(2){width:92px}
+.alt{table-layout:fixed}.alt td:first-child{width:30%;overflow-wrap:break-word;hyphens:auto}.alt td:nth-child(2){width:152px}

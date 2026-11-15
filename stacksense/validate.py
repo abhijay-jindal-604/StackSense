@@ -357,7 +357,7 @@ def _check_value(path, spec, value):
             if spec["item_enum"]:
                 low = v.lower()
                 if low not in spec["item_enum"]:
-                    bad.append(f"unknown value '{item[:60]}' (allowed: {', '.join(spec['item_enum'])})"
+                    bad.append(f"Unknown value '{item[:60]}'. Allowed: {', '.join(spec['item_enum'])}."
                                + _suggest(item, spec["item_enum"]).rstrip())
                     continue
                 if low != item:
@@ -374,7 +374,7 @@ def _check_value(path, spec, value):
             else:
                 notes.append(f"duplicate '{item}' removed")
         if bad:
-            return False, None, "; ".join(bad) + "."
+            return False, None, " ".join((b[:1].upper() + b[1:]) + ("" if b[-1] in ".?" else ".") for b in bad)
         if not out and value and not bad:
             return False, None, "List contains only blank items; give at least one non-empty value."
         return True, out, (f"{path} normalised: " + ", ".join(notes) + ".") if notes else None

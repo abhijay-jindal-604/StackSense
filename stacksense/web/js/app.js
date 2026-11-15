@@ -566,7 +566,7 @@ function doorSection() {
       h('div', { id: 'scen-list' }, pub.map(scenBtn)),
       h('div', { class: 'edgepick' }, h('label', { class: 'k', for: 'edge-sel' }, 'edge library · ' + edge.length), edgeSel,
         h('button', { class: 'btn g s', type: 'button', onclick: () => loadScenario(edgeSel.value, { run: true }) }, 'Run it')),
-      h('div', { class: 'edgechips' }, ['H13', 'H23', 'H21_empty_object'].filter((id) => edge.some((s) => s.id === id)).map((id) => h('button', { class: 'chip ghost', type: 'button', onclick: () => loadScenario(id, { run: true }) }, id.replace(/_/g, ' ') + ' · ' + (edge.find((s) => s.id === id).title === id ? 'empty file' : edge.find((s) => s.id === id).title)))))),
+      h('div', { class: 'edgechips' }, ['H13', 'H23', 'H21_empty_object'].filter((id) => edge.some((s) => s.id === id)).map((id) => h('button', { class: 'chip ghost', type: 'button', onclick: () => loadScenario(id, { run: true }) }, id.replace(/_/g, ' ') + ' · ' + (edge.find((s) => s.id === id).title === id ? 'no project name' :edge.find((s) => s.id === id).title)))))),
     door('UPLOAD', h('div', { class: 'inside' }, drop, upErr,
       h('button', { class: 'btn g s', type: 'button', style: 'margin-top:auto;align-self:flex-start', onclick: () => { paste.hidden = !paste.hidden; if (!paste.hidden) $('#paste-in').focus(); } }, 'Paste JSON instead'), paste)));
   put(sec, h('div', { class: 'door-stage' },
@@ -1028,7 +1028,8 @@ function viewResult() {
       h('span', { class: 'idx print-only' + (b.state === 'gap' ? ' hz' : '') }, b.idx), h('span', { class: 'bpic', html: FB.closeup('bolt', { kind: b.kind, state: b.state }) }),
       h('span', { class: 'btxt' }, h('span', {}, slotName(b.slot)), h('b', {}, b.state === 'gap' ? b.name : short(b.name, 40))))));
   const ptabs = h('div', { class: 'ptabs', role: 'tablist', id: 'ptabs', 'aria-label': 'Parts' }, PARTS.map((p) =>
-    h('button', { role: 'tab', type: 'button', 'data-p': p.layer, 'aria-selected': S.sel === p.layer ? 'true' : 'false', 'aria-controls': 'detail', onclick: () => pick(p.layer) }, h('small', {}, p.sub), titleCase(p.part))));
+    h('button', { role: 'tab', type: 'button', 'data-p': p.layer, 'aria-selected': S.sel === p.layer ? 'true' : 'false', 'aria-controls': 'detail', tabindex: S.sel === p.layer ? '0' : '-1', onclick: () => pick(p.layer),
+      onkeydown: (e) => { if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return; e.preventDefault(); const i = PARTS.findIndex((x) => x.layer === S.sel); const n = PARTS.length; const t = PARTS[e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : n - 1)) % n].layer; pick(t); const nb = document.querySelector('#ptabs [data-p="' + t + '"]'); if (nb) nb.focus(); } }, h('small', {}, p.sub), titleCase(p.part))));
   put(m, h('div', { class: 'res' },
     h('div', {}, xp, boltrow, h('div', { class: 'panel notes' }, tabsBlock(res))),
     h('div', { class: 'panel detail-wrap' }, ptabs, h('div', { class: 'detail', id: 'detail', role: 'tabpanel', 'aria-live': 'polite' }), costPanel(res))),
@@ -1079,7 +1080,7 @@ function drawExploded(res, xp) {
 function pick(sel) {
   if (sel === S.sel) return;
   S.sel = sel;
-  $$('#ptabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.p === sel ? 'true' : 'false'));
+  $$('#ptabs button').forEach((b) => { b.setAttribute('aria-selected', b.dataset.p === sel ? 'true' : 'false'); b.tabIndex = b.dataset.p === sel ? 0 : -1; });
   $$('#xp .xco').forEach((b) => b.setAttribute('aria-pressed', b.dataset.p === sel ? 'true' : 'false'));
   $$('#bolts .bc').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sel === sel ? 'true' : 'false'));
   $$('#xp svg.bot .pt').forEach((g) => g.classList.toggle('sel', LAYER_OF[g.dataset.part] === sel));
@@ -1130,7 +1131,7 @@ function renderDetail() {
   }
   parts.push(h('div', { class: 'dname' },
     h('div', {}, h('span', { class: 'tag' }, isSup ? 'bolt-on · ' + slotName(it.slot) : titleCase(P.part) + ' · ' + P.sub), h('h3', {}, it.choice)),
-    total != null ? h('div', { class: 'score' }, h('span', {}, 'score'), h('b', {}, String(total)), h('span', {}, 'of ' + of + ' candidates')) : null));
+    total != null ? h('div', { class: 'score' }, h('span', {}, 'score'), h('b', {}, String(total)), h('span', {}, '· best of ' + of + ' candidate' + (of === 1 ? '' : 's'))) : null));
   parts.push(h('p', { class: 'dwhy' }, it.justification));
   parts.push(h('div', { class: 'sect' }, 'driven by'), (it.driven_by || []).length ? h('div', { class: 'chips' }, it.driven_by.map(chipFor)) : h('p', { class: 'muted' }, 'No single input drove this choice.'));
   if (bars.childNodes.length) parts.push(h('div', { class: 'sect' }, isSup ? 'peer totals, highest wins' : 'score lines · open a line for its reason'), bars);
@@ -1392,7 +1393,7 @@ function diffView(a, d, path, value, animate) {
   const wrap = h('div', {},
     h('div', { class: 'pair' },
       h('div', { class: 'side' }, h('div', { class: 'mini', id: 'wi-a', html: stage(botA, 'Before: ' + scenarioTitle() + ' as answered.') }),
-        h('div', { class: 'meta' }, h('div', { class: 'k' }, 'before · ' + scenarioTitle() + ' as answered'), h('h3', {}, names('from') || words(stA || '')), h('div', { class: 'why' }, words(d.architecture_style ? d.architecture_style.from : a.architecture_style) + ' · USD ' + band(cost.from) + ' · ' + (a.warnings || []).filter((x) => x.severity !== 'info').length + ' warnings'))),
+        h('div', { class: 'meta' }, h('div', { class: 'k' }, 'before · ' + scenarioTitle() + ' as answered'), h('h3', {}, names('from') || words(stA || '')), h('div', { class: 'why' }, words(d.architecture_style ? d.architecture_style.from : a.architecture_style) + ' · USD ' + band(cost.from) + ' · ' + (() => { const n = (a.warnings || []).filter((x) => x.severity !== 'info').length; return n + ' warning' + (n === 1 ? '' : 's'); })()))),
       h('div', { class: 'deltas' },
         h('div', { class: 'dl' }, h('span', {}, 'cost per month'), h('b', { class: (cost.delta_max || 0) > 0 ? 'up' : 'down' }, cost.changed ? delta(cost.delta_min) + ' / ' + delta(cost.delta_max) : 'no change'), h('span', {}, band(cost.from) + ' → ' + band(cost.to))),
         h('div', { class: 'dl' }, h('span', {}, 'parts moved'), h('b', {}, core.length + ' of 4'), h('span', {}, '+ ' + supChanged.length + ' bolt-on' + (supChanged.length === 1 ? '' : 's'))),
@@ -1516,6 +1517,8 @@ async function viewKb() {
   const stSel = h('select', { class: 'inp', id: 'kb-status', onchange: (e) => { F.status = e.target.value; paint(false); } }, h('option', { value: '' }, 'every status'), [...new Set(kb.records.map((r) => r.status))].sort().map((s) => h('option', { value: s, selected: F.status === s }, words(s))));
   const shelfH = h('h3', {}); const cards = h('div', { class: 'cards', id: 'shelf1' });
   const retired = kb.records.filter((r) => r.status !== 'maintained');
+  const shelf2c = h('div', { class: 'cards', id: 'shelf2' });
+  const shelf2 = h('div', { class: 'shelf' }, h('h3', {}, 'Retired or closing ', h('span', {}, countTxt({ act: 0, tot: retired.length }) + ' · across all layers · the bay warns before fitting these')), shelf2c, h('div', { class: 'board' }));
   const ico = (r) => { const g = groupOf(r.layer); return g.key === 'bolt' ? FB.closeup('bolt', { kind: boltKind(r.layer, r.layer) }) : FB.closeup(g.key, { gauge: { low: 30, high: 60, budget: 45 } }); };
   const regs = (r) => ['india', 'eu', 'us'].filter((k) => (r.regions[k] || []).length).map((k) => (k === 'india' ? 'India' : k.toUpperCase()) + ' ' + r.regions[k].slice(0, 2).join(', ') + (r.regions[k].length > 2 ? ' …' : '')).join('; ') || (r.self_hostable ? 'wherever you host it' : 'none listed');
   const isRetired = (r) => r.status !== 'maintained' && r.status !== 'maintenance_only';
@@ -1600,6 +1603,8 @@ async function viewKb() {
     const ql = F.q.toLowerCase();
     const recs = kb.records.filter((r) => inGroup(g, r) && (!F.status || r.status === F.status) && (!ql || (r.name + ' ' + r.id).toLowerCase().includes(ql)))
       .sort((a, b) => (g.all ? gi(a) - gi(b) : 0) || (a.status === 'maintained' ? 0 : 1) - (b.status === 'maintained' ? 0 : 1) || (cutFor.has(b.id) ? 1 : 0) - (cutFor.has(a.id) ? 1 : 0) || a.name.localeCompare(b.name));
+    const rec2 = retired.filter((r) => inGroup(g, r) && (!F.status || r.status === F.status) && (!ql || (r.name + ' ' + r.id).toLowerCase().includes(ql)));
+    shelf2.hidden = !rec2.length; shelf2c.replaceChildren(...rec2.map(card));
     const c = counts(g);
     shelfH.replaceChildren(g.label + ' shelf ', h('span', {}, g.sub + ' · ' + countTxt(c) + (recs.length !== c.tot ? ' · ' + nf.format(recs.length) + ' shown' : '') + (cutFor.size ? ' · cut for ' + (S.result.scenario_id || 'your run') + ' in red' : '')));
     cards.replaceChildren(...(recs.length ? recs.map(card) : [h('p', { class: 'kb-empty' }, 'No part on this shelf matches “' + F.q + '”' + (F.status ? ' with status ' + words(F.status) : '') + '.')]));
@@ -1612,7 +1617,7 @@ async function viewKb() {
     h('div', { class: 'kb-bar' }, seg),
     h('div', { class: 'kbtools' }, h('label', { for: 'kb-q', class: 'k' }, 'search'), q, h('label', { for: 'kb-status', class: 'k' }, 'status'), stSel),
     h('div', { class: 'shelf' }, shelfH, cards, h('div', { class: 'board' })),
-    h('div', { class: 'shelf' }, h('h3', {}, 'Retired or closing ', h('span', {}, countTxt(rc) + ' · across all layers · the bay warns before fitting these')), h('div', { class: 'cards', id: 'shelf2' }, retired.map(card)), h('div', { class: 'board' })),
+    shelf2,
     sheetFoot('Parts catalogue · cited facts'));
   drawer.inert = true;
   paint(false);
