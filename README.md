@@ -1,5 +1,7 @@
 # StackSense
 
+Source: https://github.com/abhijay-jindal-604/StackSense
+
 StackSense is a deterministic tech-stack recommendation engine. You give it a project description in the
 challenge's input schema: product type, platforms, scale, team, budget, timeline, priorities, compliance,
 data residency, deployment model and cloud preference, plus 12 optional extra fields. It returns a frontend,
