@@ -17,7 +17,7 @@ Search
 2. Enumerate the top ``K`` (``T["K"]`` = 6) of primary-client x backend x database x hosting (the
    backend list also keeps the top ``T["K_budget_neutral"]`` ranked without ``budget_fit``, see
    :func:`shortlist`) and drop
-   every combination that breaks a hard compatibility rule (C1-C8 below); the reason is kept in
+   every combination that breaks a hard compatibility rule (C1-C9 below); the reason is kept in
    ``rejected_pairs``. When nothing passes, ``K`` widens to the full lists; when still nothing passes,
    ``ComboResult.infeasible_pair`` names the layer pair that blocked the most combinations and the
    caller marks the result ``infeasible``.
@@ -51,10 +51,14 @@ C4 frontend host       a web client needs a host that serves it (static files, o
                        backend ``None`` is allowed only when ``needs_backend`` is false; database
                        ``None`` only when ``needs_database`` is false or the backend stores its own data
                        (BaaS, commerce SaaS: :data:`SELF_STORING_BACKEND_KINDS`).
-C5 BaaS coupling       :data:`BAAS_COUPLING` (Supabase, Firebase, PocketBase, Appwrite, Shopify).
+C5 BaaS coupling       :data:`BAAS_COUPLING` (Supabase, Firebase, PocketBase, Appwrite, Shopify) and
+                       :data:`BACKEND_REQUIRES_DATABASE` (Nakama: PostgreSQL or CockroachDB).
 C6 frontend-backend    :data:`FRONTEND_NEEDS_BACKEND` / :data:`BACKEND_NEEDS_FRONTEND`.
 C7 pooler              functions hosts with PostgreSQL/MySQL need a pooler in the offering.
 C8 Kubernetes          ``scoring.k8s_allowed(p)`` (same constants as plan 6.2).
+C9 primary store       an analytics warehouse (kind in ``T['analytics_only_db_kinds']``: BigQuery,
+                       Snowflake, ClickHouse) is the primary database only when requirements.data_shape
+                       resolves to analytical; otherwise the application's records need a transactional store.
 
 Every soft term is a :class:`~stacksense.scoring.Contribution` (key = synergy name) so ``explain.py``
 can cite it. All weights and id tables live in :data:`T` (calibration changes only this table).
@@ -113,6 +117,13 @@ T: dict[str, Any] = {
     # 14 Nov: at very low budgets the budget_fit floor ties every paid host, so the score-ranked top K
     # could miss the cheapest feasible stack and the chosen minimum rose as the budget fell)
     "budget_cheapest_k": 6, "budget_cheapest_hosts": 10,
+    # cheapest mode keeps a cheaper stack only when it stays within this ratio of the best score and,
+    # unless it fits the budget, saves at least this share of the best stack's cost.min (review 14 Nov:
+    # without a floor a stack at half the score that saved a few dollars and still missed the budget won)
+    "budget_cheapest_accept_ratio": 0.7, "budget_cheapest_min_saving": 0.2,
+    # C9: database kinds that are analytics warehouses, not transactional stores (review 15 Nov: the budget
+    # fallback made BigQuery the only database of a HIPAA telehealth app)
+    "analytics_only_db_kinds": ("olap",),
 }
 
 FRAMEWORK_HOST_PAIRS = {("nextjs", "vercel")}
@@ -150,6 +161,12 @@ BAAS_COUPLING: dict[str, dict] = {
     "shopify": {"host_ids": ("shopify_hosted",), "databases": ("none",),
                 "why": "Shopify is hosted by Shopify and manages its own data"},
 }
+# C5: a framework back end that stores its own data only in particular database engines (data, not a code
+# branch per back end; the reason quotes the KB trade-off)
+BACKEND_REQUIRES_DATABASE: dict[str, dict] = {
+    "nakama": {"databases": ("postgres", "cockroachdb"),
+               "why": "Nakama keeps accounts, storage and leaderboards in PostgreSQL or CockroachDB only"},
+}
 FUNCTION_HOST_KINDS = ("serverless_fn", "static_host")
 # C1: backend kinds that run as a long-lived server process (not on a static/edge host's functions)
 SERVER_BACKEND_KINDS = ("framework",)
@@ -168,7 +185,8 @@ LAYER_PAIRS = (("frontend", "backend"), ("backend", "database"), ("backend", "ho
                ("frontend", "hosting"), ("database", "hosting"))
 RULE_NAMES = {"C1": "runtime on host", "C2": "long-lived connections", "C3": "database on host",
               "C4": "frontend needs a host", "C5": "BaaS coupling", "C6": "frontend-backend pairing",
-              "C7": "serverless connection pooling", "C8": "Kubernetes threshold"}
+              "C7": "serverless connection pooling", "C8": "Kubernetes threshold",
+              "C9": "transactional primary store"}
 
 F_REALTIME = "requirements.realtime"
 F_TEAM = "team.size"
@@ -513,10 +531,14 @@ def check_backend_database(be: Scored, db: Scored, p) -> tuple[str, str] | None:
             and _kind(be) not in SELF_STORING_BACKEND_KINDS):
         return _rej("C4", f"database None leaves {_name(be)} nowhere to store the data this project keeps "
                           f"({scoring._dynamic_text(p)}).")
-    c = BAAS_COUPLING.get(bid)
+    c = BAAS_COUPLING.get(bid) or BACKEND_REQUIRES_DATABASE.get(bid)
     if c and dbid not in c["databases"]:
         allowed = ", ".join(c["databases"])
         return _rej("C5", f"{c['why']}, so the database must be {allowed}, not {_name(db)}.")
+    if _kind(db) in T["analytics_only_db_kinds"] and getattr(p, "data_shape", None) != "analytical":
+        return _rej("C9", f"{_name(db)} is an analytics warehouse, not a transactional store; with "
+                          f"requirements.data_shape={getattr(p, 'data_shape', None)} the application's records need "
+                          f"a transactional primary database (add the warehouse later for reporting).")
     return None
 
 
@@ -1140,10 +1162,10 @@ def cheapest_combinations(ranked: Mapping[str, list], p) -> list[Combo]:
     return _sort(passed, p)
 
 
-def accept_floor(best_score: float) -> float:
+def accept_floor(best_score: float, ratio: float | None = None) -> float:
     """Lowest combo_score the fallback accepts: ``ratio x best`` (for a negative best, the same
-    distance below it)."""
-    r = T["budget_fallback_accept_ratio"]
+    distance below it); ``ratio`` defaults to ``T['budget_fallback_accept_ratio']``."""
+    r = T["budget_fallback_accept_ratio"] if ratio is None else ratio
     return round(best_score - (1 - r) * abs(best_score), 4)
 
 
@@ -1153,8 +1175,10 @@ def apply_budget(result: ComboResult, ranked: Mapping[str, list], p, cost_of) ->
     ``cost_of(combo) -> Cost`` prices a whole stack (the engine passes core + supporting lines through
     ``cost.estimate``). When the best combination's ``cost.min`` exceeds the budget, the highest-scoring
     pool combination with ``cost.min <= budget`` and ``combo_score >= accept_floor(best)`` replaces it;
-    when none exists, the cheapest feasible combination (lowest cost.min, then the better rank) is kept:
-    the pool plus the ``T['budget_cheapest_core']`` passed combinations with the lowest core estimate.
+    when none exists, the cheapest feasible combination (lowest cost.min, then the better rank) is kept,
+    among those with ``combo_score >= accept_floor(best, T['budget_cheapest_accept_ratio'])`` that fit
+    the budget or save at least ``T['budget_cheapest_min_saving']`` of the best's cost.min (else the best
+    stays): the pool plus the ``T['budget_cheapest_core']`` passed combinations with the lowest core estimate.
     The displaced combination becomes the first runner-up so explanations can cite it. Pure: the same
     pool and costs always give the same choice."""
     if not result.feasible:
@@ -1194,7 +1218,12 @@ def apply_budget(result: ComboResult, ranked: Mapping[str, list], p, cost_of) ->
         for combo in outside[: T["budget_cheapest_core"]]:
             combo = combo if combo.clients else pick_clients(combo, ranked, p)
             priced.append((combo, cost_of(combo)))
-        idx = min(range(len(priced)), key=lambda i: (priced[i][1].min, rank.get(priced[i][0].ids, i)))
+        relaxed_floor = accept_floor(best.score, T["budget_cheapest_accept_ratio"])
+        cap = best_cost.min * (1 - T["budget_cheapest_min_saving"])
+        eligible = [i for i in range(len(priced)) if i == 0 or (
+            round(priced[i][0].score, 4) >= relaxed_floor
+            and (priced[i][1].min <= budget or priced[i][1].min <= cap))]
+        idx = min(eligible, key=lambda i: (priced[i][1].min, rank.get(priced[i][0].ids, i)))
         chosen = priced[idx]
         mode = "cheapest"
     combo, c = chosen
@@ -1209,7 +1238,7 @@ def apply_budget(result: ComboResult, ranked: Mapping[str, list], p, cost_of) ->
     return replace(result, best=combo, runners_up=rest[: T["runners_up"]], budget=choice)
 
 
-__all__ = ["T", "BAAS_COUPLING", "PairRejection", "ClientPart", "Combo", "ComboResult", "BudgetChoice",
+__all__ = ["T", "BAAS_COUPLING", "BACKEND_REQUIRES_DATABASE", "PairRejection", "ClientPart", "Combo", "ComboResult", "BudgetChoice",
            "search", "apply_budget", "accept_floor",
            "check_frontend_backend", "check_backend_database", "check_backend_host", "choose_frontend_host",
            "resolve_database", "synergies", "language_penalty", "choose_languages", "client_terms",

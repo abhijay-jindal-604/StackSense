@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from stacksense import kb
 from stacksense.kb import bindings, compliance
+from stacksense.kb import regions as kb_regions
 from stacksense.profile import Profile, derive
 from stacksense.validate import validate
 
@@ -193,7 +194,10 @@ def record_violations(rec, layer, p, off=None):
     portable = res == "other" and layer == "hosting" and rec.get("kind") in ("vm", "k8s", "container", "onprem",
                                                                               "hybrid_appliance")
     if res != "none" and not portable and not (res in ("india", "eu", "us") and _region_ids(rec["regions"], res)):
-        out.append((RES, f"{rec['name']} has no verified {res} region"))
+        if _processor_unknown(rec, layer, res):
+            out.append((PROCESSOR, f"{rec['name']} has no verified {res} region (processor-only policy)"))
+        else:
+            out.append((RES, f"{rec['name']} has no verified {res} region"))
     for regime in p.compliance:
         if regime == "pci_dss" and layer not in ("backend", "database", "hosting", "payments") and not rec.get("data_at_rest"):
             continue
@@ -205,7 +209,30 @@ def record_violations(rec, layer, p, off=None):
     return out
 
 
-def _declared(output: dict, field: str) -> bool:
+# processor-only policy (author, 14 Nov): payment gateways and SMS/push senders whose us/eu region cell is
+# UNKNOWN in kb.regions (not a verified []) may pass residency, but only with a RESIDENCY_PROCESSOR_UNVERIFIED
+# warning naming the service
+PROCESSOR = "processor:" + RES
+PROCESSOR_KINDS = {"payments": None, "other": ("sms", "push")}
+
+
+def _processor_unknown(rec, layer, res) -> bool:
+    if res not in ("eu", "us") or layer not in PROCESSOR_KINDS:
+        return False
+    kinds = PROCESSOR_KINDS[layer]
+    if kinds is not None and rec.get("kind") not in kinds:
+        return False
+    rk = bindings.BINDINGS.get(rec["id"], (None, None))[0]
+    if rk is None:
+        return res not in (rec.get("regions") or {})
+    return kb_regions.regions_for(rk, res) == kb_regions.UNKNOWN
+
+
+def _declared(output: dict, field: str, msg: str = "") -> bool:
+    if field == PROCESSOR:
+        name = msg.split(" has no verified", 1)[0]
+        return any(w.get("code") == "RESIDENCY_PROCESSOR_UNVERIFIED" and w.get("message", "").startswith(name)
+                   for w in output.get("warnings") or []) or _declared(output, RES)
     for w in output.get("warnings") or []:
         if w.get("severity") == "critical" and field in (w.get("fields") or []):
             return True
@@ -229,7 +256,7 @@ def hard_violations(scenario_values, output: dict) -> list[str]:
             continue
         layer = rec["layer"] if out_layer in ("frontend",) or out_layer in CORE else out_layer
         for field, msg in record_violations(rec, layer, p, off):
-            if field == "status" or not _declared(output, field):
+            if field == "status" or not _declared(output, field, msg):
                 problems.append(f"{out_layer}: {msg} ({field})")
     return problems
 

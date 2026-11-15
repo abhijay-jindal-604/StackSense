@@ -198,8 +198,14 @@ def existing_outputs(p) -> tuple[list[dict], list[str]]:
                               f"'{raw}' was not recognised; assumed reachable through an API or scheduled export.",
                               ["infrastructure.existing_systems"]))
         notes.append(f"{raw}: integrate through its API or a scheduled export (infrastructure.existing_systems).")
+    failed = {(m.raw, m.pattern_id): rej for m, _rec, rej in conflicts.existing_hard_failures(p)}
     for m in (ex.matches if ex else ()):
-        if m.integration_note:
+        rej = failed.get((m.raw, m.pattern_id))
+        if rej is not None:
+            # never suggest reusing a system that breaks a hard constraint (EXISTING_SYSTEM_CONFLICT)
+            notes.append(f"{m.raw}: not reused as is, because {rej.reason_text.rstrip('.')}; "
+                         f"{conflicts.existing_conflict_advice(p)}")
+        elif m.integration_note:
             notes.append(m.integration_note)
     return warns, notes
 
@@ -397,9 +403,16 @@ def budget_assumptions(result) -> list[str]:
                 f"(budget.monthly_infra_usd={b}): the chosen stack's estimate starts at USD {bc.cost.min:,}/month "
                 f"vs USD {bc.displaced_cost.min:,}, and its combination score {fmt(round(bc.combo.score, 2))} is "
                 f"within {pct}% of the best {fmt(round(bc.displaced.score, 2))}."]
+    rpct = fmt(round(combine.T["budget_cheapest_accept_ratio"] * 100))
+    save = fmt(round(combine.T["budget_cheapest_min_saving"] * 100))
     text = (f"Budget fallback: no stack among the top {n} combinations has an estimate starting at or below "
-            f"USD {b}/month within {pct}% of the best score, so the cheapest feasible stack "
-            f"(USD {bc.cost.min:,}-{bc.cost.max:,}/month) is kept")
+            f"USD {b}/month within {pct}% of the best score")
+    if bc.displaced is None:
+        text += (f", and no cheaper stack within {rpct}% of the best score fits it or saves at least {save}%, "
+                 f"so the recommended stack (USD {bc.cost.min:,}-{bc.cost.max:,}/month) is kept")
+    else:
+        text += (f", so the cheapest feasible stack within {rpct}% of the best score "
+                 f"(USD {bc.cost.min:,}-{bc.cost.max:,}/month) is kept")
     if bc.displaced is not None:
         x, y = _combo_diff(bc.combo, bc.displaced)
         text += (f": {' + '.join(x)} instead of {' + '.join(y)} (USD {bc.displaced_cost.min:,}-"
@@ -475,7 +488,8 @@ def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
     # 6. supporting services, cost
     sup = supporting.select(p, best.stack(), needs_managed_realtime="needs_managed_realtime" in best.flags)
     warnings += list(sup.warnings)
-    relaxed += [g.relaxed() for g in sup.gaps if g.code == "AIRGAP_EXTERNAL_DEPENDENCY"]
+    # every critical gap drops a required capability: record it as relaxed (statement 4)
+    relaxed += [r for r in (g.relaxed() for g in sup.gaps if g.severity == "critical") if r not in relaxed]
     assumptions += list(sup.assumptions)
     est = cost.estimate(p, best.stack(), extra_lines=sup.cost_lines(p))
     warnings += list(est.warnings)

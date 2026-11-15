@@ -50,7 +50,7 @@ scenario JSON
 | `description.py` | Deterministic keyword signals from `project.description` (no LLM) |
 | `existing.py` | Recognises existing systems, end-of-life verdicts, reuse targets and integration notes |
 | `profile.py` | Derived quantities: size class, peak requests/second, ops capacity, delivery pressure, effective residency |
-| `conflicts.py` | Warning catalogue (65 codes) and conflict rules with their effects |
+| `conflicts.py` | Warning catalogue (66 codes) and conflict rules with their effects |
 | `filters.py` | Hard filters F1-F8 (platform, deployment, cloud, residency, compliance, ...); unknown facts fail closed |
 | `scoring.py` | Scores each candidate as a sum of named contributions (weights in one table `W`) |
 | `combine.py` | Searches compatible frontend + backend + database + hosting combinations; budget fallback |

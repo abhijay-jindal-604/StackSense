@@ -32,8 +32,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
+from . import filters as _filters
 from . import kb
 from .kb import costs as _costs
+from .kb import existing_patterns as _existing_patterns
 from .kb import languages as _languages
 from .kb import regions as _regions
 from .scoring import Scored, fmt, val
@@ -207,9 +209,13 @@ CATALOGUE: dict[str, Entry] = {
     "EXISTING_SYSTEM_UNRECOGNISED": _e(I, ["infrastructure.existing_systems"],
                                        "'{raw}' was not recognised; assumed reachable through an API or scheduled "
                                        "export.", source="engine"),
-    "EXISTING_SYSTEM_CONFLICT": _e(W, ["infrastructure.existing_systems", "infrastructure.deployment_model"],
-                                   "{system} is on-premise while the new stack runs in {where}; a private link or "
-                                   "scheduled sync is needed."),
+    "RESIDENCY_PROCESSOR_UNVERIFIED": _e(W, ["infrastructure.data_residency"],
+                                         "{service} does not commit to keeping data in the {region}; it may "
+                                         "process {what} data outside the region. Sign its data processing "
+                                         "agreement and keep regulated records out of the payload.",
+                                         source="supporting"),
+    "EXISTING_SYSTEM_CONFLICT": _e((W, C), ["infrastructure.existing_systems", "infrastructure.deployment_model"],
+                                   "{system} {problem}; {advice}"),
     # ---- scale and shape
     "SCALE_INCONSISTENT": _e(W, ["scale.users_at_launch", "scale.users_12_months",
                                  "scale.peak_concurrent_users"],
@@ -555,8 +561,48 @@ def _existing(p) -> list[Conflict]:
         if (getattr(m, "family", "") == "database" and _is_on_prem(ex, m)
                 and p.deployment in ("managed_cloud", "self_hosted_cloud_vm")):
             where = p.cloud or "a managed cloud"
-            out.append(conflict("EXISTING_SYSTEM_CONFLICT", system=m.raw, where=where))
+            out.append(conflict("EXISTING_SYSTEM_CONFLICT", system=m.raw,
+                                problem=f"is on-premise while the new stack runs in {where}",
+                                advice="a private link or scheduled sync is needed."))
+    for m, rec, rej in existing_hard_failures(p):
+        fields = tuple(dict.fromkeys(("infrastructure.existing_systems",) + tuple(rej.fields)))
+        out.append(conflict("EXISTING_SYSTEM_CONFLICT", severity=C if p.deployment == "air_gapped" else W,
+                            fields=fields, system=m.raw,
+                            problem=f"cannot be reused as is: {rej.reason_text.rstrip('.')}",
+                            advice=existing_conflict_advice(p)))
     return out
+
+
+# hard filter rules that encode hard constraints (deployment, cloud preference, residency, compliance)
+EXISTING_HARD_RULES = ("F2", "F3", "F3b", "F4", "F5")
+
+
+def existing_hard_failures(p) -> list[tuple[Any, dict, Any]]:
+    """``(match, kb record, Rejection)`` for every recognised existing system whose KB record
+    (:data:`kb.existing_patterns.KB_RECORD`) fails a hard constraint, in input order (one per system
+    string and record). Systems without a KB record are not judged."""
+    out, seen = [], set()
+    ex = getattr(p, "existing", None)
+    for m in (getattr(ex, "matches", ()) or ()):
+        rid = _existing_patterns.KB_RECORD.get(getattr(m, "pattern_id", ""))
+        rec = kb.get(rid) if rid else None
+        if rec is None or (m.raw, rid) in seen:
+            continue
+        seen.add((m.raw, rid))
+        rej = next((r for r in _filters.check_all(rec, p, rec["layer"]) if r.rule in EXISTING_HARD_RULES), None)
+        if rej is not None:
+            out.append((m, rec, rej))
+    return out
+
+
+def existing_conflict_advice(p) -> str:
+    """What to do with an existing system that fails a hard constraint (plain language)."""
+    if p.deployment == "air_gapped":
+        return ("an air-gapped deployment cannot reach it, so the new stack does not depend on it; replace "
+                "it with a self-hosted equivalent inside the network.")
+    return ("integrate with it only for data outside the constraint (no personal or regulated records pass "
+            "through it), confirm the transfer with your data protection lead, or replace it with a service "
+            "that meets the constraint.")
 
 
 # ================================================================== effects
@@ -771,7 +817,9 @@ def post_checks(p, combo, supporting=None, cost=None, ranked: Mapping[str, list]
     if ml == "llm_rag" and p.effective_residency not in ("none",):
         mls = [r for layer, r in sel if layer == "ml"]
         region = (p.regions[0][1] if p.regions else p.effective_residency)
-        prof = (f"{mls[0]['name']} with a {p.effective_residency} region or in-country inference profile"
+        rn = _filters.RESIDENCY_NAMES.get(p.effective_residency, p.effective_residency)
+        rn = "an in-country" if p.effective_residency == "other" else ("an " if rn[:1] in "AEIOU" else "a ") + rn
+        prof = (f"{mls[0]['name']} with {rn} region or in-country inference profile"
                 if mls else "an in-region model endpoint")
         add(conflict("LLM_DATA_RESIDENCY", profile=prof,
                      region=p.effective_residency if p.effective_residency != "other" else "the required country"))

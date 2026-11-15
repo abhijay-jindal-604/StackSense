@@ -50,6 +50,12 @@ from .scoring import DYNAMIC_FIELDS, Contribution, LayerContext, Scored, _size_f
 SW: dict[str, Any] = {
     # affinity terms (plan 6.1)
     "native": 3, "bundled": 2, "reuse": 2, "new_vendor": -2,
+    # an existing message broker already runs and is operated: a second broker doubles the operations
+    # (review 14 Nov: the integration note said "use the existing Kafka cluster" while SQS was chosen)
+    "reuse_by_layer": {"queue": 12},
+    # data services earn the same-provider bonus only from the host that runs the back end (review 14 Nov:
+    # a web-only frontend host made its provider's object storage "native" to a back end elsewhere)
+    "backend_native_layers": ("cache", "queue", "search", "storage"),
     # requirement fit inside a layer
     "req_native": 2, "req_poor": -3, "org_bonus": 1,
     # selection-note fits (plan 6.1 "Selection notes")
@@ -226,6 +232,11 @@ class Selection:
     rejected: tuple[filters.Rejection, ...]     # hard-filter failures (sorted by id)
     incompatible: tuple[Incompatible, ...]      # compatibility failures (sorted by id)
     triggers: tuple[tuple[str, str], ...]       # (field path, plain-language reason)
+    # (field path, plain-language reason) of a hard-filter pass that carries a warning
+    # (RESIDENCY_PROCESSOR_UNVERIFIED: filters.processor_residency_note)
+    pass_notes: tuple[tuple[str, str], ...] = ()
+    # concrete name for a placeholder record ("Built into the host (...)" -> the chosen host), else ""
+    display: str = ""
 
     @property
     def tech(self) -> dict:
@@ -241,7 +252,7 @@ class Selection:
 
     def driven_by(self) -> list[str]:
         out: list[str] = []
-        for f, _ in self.triggers:
+        for f, _ in self.triggers + self.pass_notes:
             if f not in out:
                 out.append(f)
         contribs = sorted((c for c in self.chosen.contributions if abs(c.value) >= 0.5),
@@ -262,9 +273,15 @@ class Selection:
         t = self.tech
         why = "; ".join(r for _, r in self.triggers)
         pos = sorted((c for c in self.chosen.contributions if c.value > 0), key=lambda c: (-c.value, c.key))
-        just = f"{t['name']} is chosen for {self.layer} because {why}."
+        name = self.display or t["name"]
+        just = f"{name} is chosen for {self.layer} because {why}."
         if pos:
-            just += " " + " ".join(f"{c.reason} ({_signed(c.value)} {c.key})" for c in pos[:2])
+            just += " " + " ".join(f"{c.reason} ({_signed(c.value)} {c.key})" for c in pos)
+        neg = sorted((c for c in self.chosen.contributions if c.value < 0), key=lambda c: (c.value, c.key))
+        if neg:
+            just += " Against it: " + "; ".join(f"{c.reason} ({_signed(c.value)} {c.key})" for c in neg) + "."
+        for f, text in self.pass_notes:
+            just += f" It passes {f} only as a processor: {text}"
         alts = []
         for s in self.alternatives[:2]:
             alts.append({"choice": s.tech["name"], "why_not": _why_not(self.chosen, s)})
@@ -273,7 +290,7 @@ class Selection:
                 alts.append({"choice": r.name, "why_not": r.reason_text})
         trade = list(t.get("tradeoffs") or [])[:2]
         trade += [c.reason for c in self.chosen.contributions if c.value <= -1][:2]
-        return {"layer": self.layer, "slot": self.slot, "kb_id": self.id, "choice": t["name"],
+        return {"layer": self.layer, "slot": self.slot, "kb_id": self.id, "choice": name,
                 "justification": just, "driven_by": self.driven_by(),
                 "alternatives": alts[:SW["max_alternatives"]], "tradeoffs": trade[:SW["max_tradeoffs"]]}
 
@@ -296,7 +313,10 @@ class SupportingGap:
         return {"code": self.code, "severity": self.severity, "message": self.message, "fields": list(self.fields)}
 
     def relaxed(self) -> str:
-        return f"RELAXED: {', '.join(f for f, _ in self.triggers)} ({self.slot}): {self.workaround or 'left out'}"
+        need = self.slot.replace("other.", "").replace("_", " ")
+        text = f"no {need} service meets the hard constraints, so it is left out"
+        return (f"RELAXED: {', '.join(f for f, _ in self.triggers)} ({self.slot}): {text}"
+                + (f"; {self.workaround}" if self.workaround else ""))
 
 
 @dataclass(frozen=True)
@@ -309,7 +329,10 @@ class SupportingResult:
 
     @property
     def warnings(self) -> tuple[dict, ...]:
-        return tuple(g.warning() for g in self.gaps)
+        notes = tuple({"code": "RESIDENCY_PROCESSOR_UNVERIFIED", "severity": "warning", "message": text,
+                       "fields": [f]}
+                      for s in self.selections for f, text in s.pass_notes)
+        return tuple(g.warning() for g in self.gaps) + notes
 
     def layers(self) -> list[str]:
         out = []
@@ -446,6 +469,12 @@ class _Cx:
             fams.add(core.provider)
         fams.discard(None)
         self.host_families = frozenset(fams)
+        fe_only_ids = {h["id"] for h in (core.frontend_hosts or ())}
+        bfams = {provider_of(h) for h in self.hosts if h["id"] not in fe_only_ids}
+        if core.provider:
+            bfams.add(core.provider)
+        bfams.discard(None)
+        self.backend_host_families = frozenset(bfams)
         bp = provider_of(self.backend)
         self.stack_providers = frozenset(fams | ({bp} if bp else set()))
         self.backend_id = (self.backend or {}).get("id")
@@ -514,6 +543,10 @@ class _Cx:
 
     def autoscaling_host(self) -> bool:
         return any("autoscaling" in _caps(h) for h in self.hosts)
+
+    def native_families(self, slot) -> frozenset:
+        """Provider families that make a candidate of ``slot`` native (same provider as its host)."""
+        return self.backend_host_families if slot.layer in SW["backend_native_layers"] else self.host_families
 
     def host_names(self) -> str:
         return " + ".join(h["name"] for h in self.hosts) or "no host"
@@ -587,9 +620,15 @@ def _t_cdn(p, cx) -> Trig:
         out.append(("scale.geographic_spread", f"scale.geographic_spread={geo}"))
     if _size_ge(p, "m"):
         out.append((_size_fields(p)[0], f"size class {p.size}"))
-    if val(p, "requirements.file_media_storage"):
+    if val(p, "requirements.file_media_storage") and not _private_uploads(p):
         out.append(("requirements.file_media_storage", "requirements.file_media_storage=true (media delivery)"))
     return out
+
+
+def _private_uploads(p) -> bool:
+    """Uploads are regulated data when a residency or compliance constraint is set: the CDN (exempt from
+    F4/F5 as a public-asset layer) must not cache them, so they are not a reason to add one."""
+    return p.effective_residency != "none" or bool(p.compliance)
 
 
 def _t_cache(p, cx) -> Trig:
@@ -814,7 +853,7 @@ SLOTS: tuple[Slot, ...] = (
          workaround="poll the API at a short interval until a compliant realtime service is available"),
     Slot("storage", "storage", "storage", None, _t_storage,
          "requirements.file_media_storage, or KYC documents/photos/video in the description",
-         workaround="store files in the database or on the host's disk until a compliant object store is available"),
+         workaround="store files in the database, or on a persistent volume where the host has one, until a compliant object store is available"),
     Slot("cdn", "cdn", "cdn", None, _t_cdn,
          "a web client and (seo_critical, read_heavy, multi-region/global users, size >= m or media files), not air-gapped or internal-only",
          severity="warning", workaround="serve static assets from the host directly"),
@@ -1040,7 +1079,7 @@ def _fits(slot: Slot, rec: dict, p, cx: _Cx) -> list[tuple[str, float, tuple, st
                  f"size {p.size} / ops capacity {p.ops_capacity}: a database-backed queue reuses the database, no broker to run"))
         if kind == "managed" and set(rec.get("cloud_affinity") or ()) <= set(HYPERSCALERS) and _size_ge(p, SW["queue_managed_min_size"]):
             add(("selection_fit", SW["fit_good"], _size_fields(p), f"size {p.size}: {name} absorbs bursts without a broker to run"))
-        if kind == "log":
+        if kind == "log" and not cx.reuse_hit(rec):   # an existing Kafka cluster is reused, not added
             ok = (_size_ge(p, SW["kafka_min_size"]) and p.ops_capacity >= SW["kafka_min_ops"]
                   and (val(p, "project.type") in ("data_analytics", "iot") or p.realtime_msgs_per_s > SW["kafka_min_msgs"]))
             if not ok:
@@ -1144,11 +1183,11 @@ def _affinity(slot: Slot, rec: dict, p, cx: _Cx, bundle_available: bool) -> list
         out.append(("bundled", SW["bundled"], cloud_f, f"{name} comes with the chosen back end {cx.backend['name']}"))
     elif "bundled_with_host" in _caps(rec):
         out.append(("bundled", SW["bundled"], cloud_f, f"{name} is part of the host {cx.host_names()}"))
-    elif slot.native_affinity and prov and prov in cx.host_families:
+    elif slot.native_affinity and prov and prov in cx.native_families(slot):
         out.append(("native", SW["native"], cloud_f, f"{name} is from the same provider ({prov}) as the host {cx.host_names()}"))
     hit = cx.reuse_hit(rec)
     if hit:
-        out.append(("reuse", SW["reuse"], ("infrastructure.existing_systems",),
+        out.append(("reuse", SW["reuse_by_layer"].get(slot.layer, SW["reuse"]), ("infrastructure.existing_systems",),
                     f"infrastructure.existing_systems includes '{hit}', which {name} reuses"))
     elif (bundle_available and rec.get("saas") and not bundled and not rec.get("self_hostable")
           and "bundled_with_host" not in _caps(rec)
@@ -1224,7 +1263,7 @@ def _bundle_or_native(slot: Slot, rec: dict, cx: _Cx) -> bool:
     if "bundled_with_backend" in _caps(rec) or ("bundled_with_host" in _caps(rec)):
         return True
     prov = provider_of(rec)
-    return bool(slot.native_affinity and prov and prov in cx.host_families)
+    return bool(slot.native_affinity and prov and prov in cx.native_families(slot))
 
 
 # ================================================================== gaps
@@ -1294,8 +1333,48 @@ def _eval_slot(slot: Slot, trig, p, cx: _Cx):
     floors = slot_floors(ok, p)
     ranked = sorted((_score(slot, r, p, cx, bundle_available, floors) for r in ok),
                     key=lambda s: (-round(s.total, 4), s.tech["id"]))
+    display = concrete_name(ranked[0].tech, cx)
+    note = filters.processor_residency_note(ranked[0].tech, p, slot.kb_layer)
+    notes = (("infrastructure.data_residency", note),) if note else ()
     return Selection(slot=slot.id, layer=slot.layer, chosen=ranked[0], ranked=tuple(ranked),
-                     rejected=tuple(rejected), incompatible=tuple(incompatible), triggers=tuple(trig)), None
+                     rejected=tuple(rejected), incompatible=tuple(incompatible), triggers=tuple(trig),
+                     pass_notes=notes, display=display), None
+
+
+# Placeholder records (a capability of the chosen host or framework, not a product of their own) -> how the
+# output names them concretely: "hosts" = the chosen web hosts, "all_hosts" = every chosen host, "backend" =
+# the chosen back end, "runtime" = a library per back-end runtime (review 14 Nov, M5)
+CONCRETE_NAMES: dict[str, tuple[str, Any]] = {
+    "cdn_host_builtin": ("hosts", "Edge network built into {}"),
+    "host_native_git_deploys": ("hosts", "Git deploys built into {}"),
+    "platform_builtin_logs": ("all_hosts", "Built-in logs and analytics of {}"),
+    "native_websockets": ("backend", "WebSockets built into {}"),
+    "redis_jobs": ("runtime", {"node": "BullMQ (Redis-backed jobs)", "python": "Celery (Redis-backed jobs)",
+                               "ruby": "Sidekiq (Redis-backed jobs)"}),
+}
+
+
+def concrete_name(rec: dict, cx: "_Cx") -> str:
+    """The concrete output name of a placeholder record for this stack, or "" (keep the KB name)."""
+    entry = CONCRETE_NAMES.get(rec.get("id"))
+    if entry is None:
+        return ""
+    mode, fmt_ = entry
+    if mode == "runtime":
+        rt = (cx.backend or {}).get("runtime") if cx.has_backend() else None
+        return fmt_.get(rt, "") if isinstance(rt, str) else ""
+    if mode == "backend":
+        return fmt_.format(cx.backend["name"]) if cx.has_backend() else ""
+    # hosts that keep logs for the team (a VM or container host does not: logs_host)
+    hosts = [h for h in cx.hosts if h.get("kind") in ("static_host", "paas", "serverless_fn")] or list(cx.hosts)
+    if mode == "hosts":
+        web = cx._web_hosts()
+        # the web host whose edge (cdn) or git integration (ci_cd) provides the service, else every web host
+        want = "edge" if rec.get("layer") == "cdn" else None
+        hosts = [h for h in web if (want in _caps(h) if want else h.get("kind") in ("static_host", "paas")
+                                   and provider_of(h) not in HYPERSCALERS)] or web
+    names = list(dict.fromkeys(h["name"] for h in hosts))
+    return fmt_.format(" + ".join(names)) if names else ""
 
 
 def select(p, core, *, needs_managed_realtime: bool = False) -> SupportingResult:
@@ -1316,6 +1395,13 @@ def select(p, core, *, needs_managed_realtime: bool = False) -> SupportingResult
             cx.chosen[slot.id] = sel.tech
         else:
             gaps.append(_soften_gap(gap, cx))
+    if cx.chosen.get("cdn") and val(p, "requirements.file_media_storage") and _private_uploads(p):
+        why = " and ".join(x for x in (f"data_residency={p.effective_residency}" if p.effective_residency != "none" else "",
+                                    f"compliance={','.join(p.compliance)}" if p.compliance else "") if x)
+        asm.append(f"The CDN ({concrete_name(cx.chosen['cdn'], cx) or cx.chosen['cdn']['name']}) serves public static assets only: with {why}, user "
+                   f"uploads (requirements.file_media_storage=true) stay in the "
+                   f"{'in-region' if p.effective_residency != 'none' else 'private'} object storage and are "
+                   f"served through short-lived pre-signed URLs, not cached at the edge.")
     if "web" in p.clients and p.air_gapped:
         asm.append("No CDN: infrastructure.deployment_model=air_gapped has no route to a public edge network.")
     if not cx.has_backend() and cx.nonempty():

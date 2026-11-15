@@ -327,6 +327,19 @@ PATTERNS: tuple[Pattern, ...] = (
 
 BY_ID: dict[str, Pattern] = {p.id: p for p in PATTERNS}
 
+# Pattern id -> the KB record of the same product, when one exists. The engine runs that record through
+# the hard filters (deployment, cloud preference, residency, compliance) so reusing an existing system
+# never bypasses a hard constraint (EXISTING_SYSTEM_CONFLICT). Systems without a record (Okta,
+# Salesforce, on-premises AD, ...) keep their plain integration note.
+KB_RECORD: dict[str, str] = {
+    "entra_id": "entra_id_workforce", "entra_external_id": "entra_external_id", "auth0": "auth0",
+    "cognito": "amazon_cognito", "keycloak": "keycloak", "firestore": "firestore", "dynamodb": "dynamodb",
+    "bigquery": "bigquery", "kafka": "apache_kafka_self", "rabbitmq": "rabbitmq_self",
+    "aws_sqs_sns": "amazon_sqs", "azure_service_bus": "azure_service_bus",
+    "microsoft_365": "microsoft_graph_api", "stripe": "stripe", "razorpay": "razorpay",
+    "twilio": "twilio_verify", "github": "github_actions", "jenkins": "jenkins",
+}
+
 _COMPILED = tuple(re.compile(p.regex, re.IGNORECASE) for p in PATTERNS)
 _VERSION = re.compile(r"[\s:/-]{0,3}(?:v|version\s+|ver\.?\s*)?(\d+(?:\.\d+){0,2}[a-z]?)(?!\d)", re.IGNORECASE)
 _NEGATION = re.compile(
