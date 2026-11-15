@@ -1,0 +1,29 @@
+/* motion kit: one set of timings for the moments after the hero.
+   Read by the JS helpers in app.js (settle, drawTag, boltPart) through getComputedStyle,
+   so the CSS and the WAAPI calls stay on the same numbers. Curves come from base.css
+   (--ease-out for entering, --ease-io for on-screen moves). */
+:root{
+  --m-settle:220ms;   /* screen entry: a short lift into place, content never fades from zero */
+  --m-draw:260ms;     /* label line drawing out from a part once it locks */
+  --m-bolt-gap:180ms; /* gap between parts bolting on in sequence */
+  --m-door-beat:200ms;/* pause once the shutters are in view, before they roll up */
+}
+
+/* (i) disclosure: secondary "why" lines live here, one click or Enter away */
+details.info{display:inline-block;vertical-align:middle;margin:0;max-width:46em}
+details.info>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;min-height:28px;
+  font:500 12.5px var(--mono);color:var(--muted);border-radius:2px}
+details.info>summary::-webkit-details-marker{display:none}
+details.info>summary .i{display:inline-grid;place-items:center;width:20px;height:20px;border:1.5px solid currentColor;border-radius:50%;
+  font:600 12px/1 var(--mono);font-style:normal;transition:transform var(--d-press,140ms) var(--ease-out)}
+details.info>summary:active .i{transform:scale(.94)}
+details.info>summary:focus-visible{outline:2px solid var(--weld);outline-offset:3px}
+@media (hover:hover) and (pointer:fine){details.info>summary:hover{color:var(--ink)}}
+details.info[open]>summary{color:var(--ink)}
+details.info>p{margin:6px 0 0;color:var(--muted);font-size:14px;line-height:1.5}
+.hd details.info,.top2 details.info{display:block;margin-top:8px}
+.tp details.info>summary{color:#4F5967}
+.tp details.info>p{color:#4F5967}
+
+/* off in the print theme: final frames only */
+[data-shot] details.info>summary .i{transition:none}

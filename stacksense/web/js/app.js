@@ -340,7 +340,7 @@ function heroSection() {
     h('div', { class: 'layer l-soot' }), h('div', { class: 'layer l-weld' }), h('div', { class: 'layer l-ink' }), h('div', { class: 'layer l-paper' }),
     h('div', { class: 'in' },
       h('h1', { html: 'Every answer <em>bolts on</em> a part.' }),
-      h('p', { class: 'lede' }, 'Your project rolls in as a bare chassis. ', h('span', {}, 'Tell the bay your team, budget, deadline and the laws you answer to; it fits each part and tags it with the answer that put it there.')),
+      h('p', { class: 'lede' }, 'Tell the bay your team, budget, deadline and laws. ', h('span', {}, 'Each part is tagged with the answer that fitted it.')),
       h('div', { class: 'acts' },
         h('button', { class: 'btn p', type: 'button', onclick: () => { setScenario({}, ''); go('#/q/1'); } }, 'Start the fitting ', h('span', { class: 'arr' }, '→')),
         h('button', { class: 'btn', type: 'button', onclick: () => loadScenario('P2', { run: true }) }, 'Load ' + (sc ? getp(sc, 'project.name') : 'P2'))),
@@ -369,13 +369,13 @@ function heroDock(sc, res) {
     });
     const cn = $('#cneedle'); if (cn) cn.textContent = usd(v);
     inrEl.textContent = '≈ ' + inr(v) + ' at ₹' + INR_PER_USD + ' per USD, display only';
-    if (v < g.low) { msg.className = 'msg'; msg.textContent = `Below the band: USD ${usd(v)} won't cover the low estimate of USD ${usd(g.low)}. The run will say so with BUDGET_EXCEEDED.`; }
-    else if (v > g.high) { msg.className = 'msg ok'; msg.textContent = `Above the band: USD ${usd(v)} covers even the high estimate of USD ${usd(g.high)}.`; }
-    else { msg.className = 'msg ok'; msg.textContent = `Inside the band: the estimate for ${getp(sc, 'project.name')} is USD ${band(res.estimated_monthly_cost_usd)}.`; }
+    if (v < g.low) { msg.className = 'msg'; msg.textContent = `Below the band (low estimate USD ${usd(g.low)}): the run flags BUDGET_EXCEEDED.`; }
+    else if (v > g.high) { msg.className = 'msg ok'; msg.textContent = `Above the band: covers the high estimate of USD ${usd(g.high)}.`; }
+    else { msg.className = 'msg ok'; msg.textContent = `Inside the band: USD ${band(res.estimated_monthly_cost_usd)}.`; }
   };
   inp.addEventListener('input', () => {
     const v = parseInt(inp.value.replace(/\D/g, ''), 10);
-    if (!isNaN(v)) set(Math.min(v, 99999)); else { msg.className = 'msg'; msg.textContent = 'Write a whole number of US dollars, for example 150.'; }
+    if (!isNaN(v)) set(Math.min(v, 99999)); else { msg.className = 'msg'; msg.textContent = 'Whole US dollars, for example 150.'; }
   });
   setTimeout(() => set(budget), 0);
   const f = S.fields.find((x) => x.path === 'budget.monthly_infra_usd');
@@ -385,13 +385,13 @@ function heroDock(sc, res) {
     h('div', { class: 'q' },
       h('div', { class: 'k' }, 'step 4 of ' + S.steps.length + ' · ', h('code', {}, 'budget.monthly_infra_usd')),
       h('h2', {}, f ? f.label : 'Monthly infrastructure budget'),
-      h('p', { class: 'why' }, 'The bay prices every part. If the estimate runs past this, the cost gauge turns hazard yellow and the tag says so. It never overruns quietly.'),
+      h('div', { class: 'why' }, 'Past the band, the gauge turns hazard yellow. ', info('why', 'The bay prices every part. If the estimate runs past your budget, the gauge and the tag say so; it never overruns quietly.')),
       h('div', { class: 'row' }, h('div', { class: 'money' }, h('label', { for: 'bud' }, 'USD'), inp, h('span', { class: 'per' }, '/ month')), inrEl),
       msg),
     h('div', { class: 'moves' },
       h('div', { class: 'k' }, 'this answer moves'),
       h('div', { class: 'chips' }, h('span', { class: 'chip hz' }, 'cradle · hosting'), h('span', { class: 'chip' }, 'cost gauge'), h('span', { class: 'chip' }, 'warnings')),
-      h('p', { class: 'muted', style: 'margin:0;font-size:13.5px' }, 'Try 40 or 400: the needle in the core moves now; the parts are chosen when you run the fitting.'),
+      h('p', { class: 'muted', style: 'margin:0;font-size:13.5px' }, 'Try 40 or 400.'),
       h('button', { class: 'btn p', id: 'fitcradle', type: 'button', onclick: () => {
         const v = parseInt(inp.value.replace(/\D/g, ''), 10);
         const s2 = JSON.parse(JSON.stringify(sc)); if (!isNaN(v)) setp(s2, 'budget.monthly_infra_usd', v);
@@ -492,6 +492,41 @@ function buildHeroScene(sec) {
   $('#replay', sec).onclick = play;
 }
 
+/* ---- motion kit: the hero's bolt-and-tag language for the rest of the bay (timings in css/motion.css).
+   Everything here is a no-op under prefers-reduced-motion and in ?shot=1, so those show final frames. */
+const motionOK = () => !reduce() && !SHOT();
+const mvar = (name, fb) => { const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)); return isNaN(v) ? fb : v; };
+const M_OUT = 'cubic-bezier(.23,1,.32,1)';
+/* screen entry: a short lift into place; only when arriving from another screen (not step to step, not a re-render) */
+let entryFrom = '', entryPending = true;
+addEventListener('hashchange', (e) => { entryFrom = (String(e.oldURL).split('#')[1] || '').replace(/^\/?/, '').split(/[/?]/)[0] || 'start'; entryPending = true; });
+function settle(el, key) {
+  const fresh = entryPending && entryFrom !== key; entryPending = false;
+  if (!fresh || !el || !motionOK()) return;
+  el.animate([{ transform: 'translateY(6px)', opacity: 0.7 }, { transform: 'none', opacity: 1 }], { duration: mvar('--m-settle', 220), easing: M_OUT });
+}
+/* a label line draws out from the part, then its tag wipes on from the pin side */
+function drawTag(leader, box, delay = 0) {
+  if (!motionOK()) return;
+  const d = mvar('--m-draw', 260);
+  if (leader && leader.getTotalLength) {
+    const L = leader.getTotalLength().toFixed(1);
+    leader.animate([{ strokeDasharray: L + ' ' + L, strokeDashoffset: L }, { strokeDasharray: L + ' ' + L, strokeDashoffset: 0 }], { duration: d, delay, easing: M_OUT, fill: 'backwards' });
+  }
+  if (box) box.animate([{ clipPath: 'inset(0 100% 0 0)', opacity: 0 }, { clipPath: 'inset(0 0 0 0)', opacity: 1 }], { duration: d, delay: delay + d * 0.6, easing: M_OUT, fill: 'backwards' });
+}
+/* one part bolts on (FB.boltOn: slide, lock flash, sparks, steam), then its tag draws; returns when the tag starts */
+function boltPart(svg, part, from, delay, tag) {
+  const g = svg && svg.querySelector(`.pt[data-part="${part}"]`); if (!g) return;
+  if (!motionOK()) { FB.boltOn(svg, part, from); return; }
+  g.classList.remove('fit'); g.classList.add('empty');
+  setTimeout(() => FB.boltOn(svg, part, from), delay);
+  if (tag) drawTag(tag.leader, tag.box, delay + 430);
+}
+/* (i) disclosure for the secondary "why" line; <details> keeps it keyboard reachable with no script */
+const info = (label, text) => h('details', { class: 'info' }, h('summary', {}, h('i', { class: 'i', 'aria-hidden': 'true' }, 'i'), label), h('p', {}, text));
+const boltFrom = (p, i) => (p === 'cradle' || p === 'core' ? 'top' : p === 'visor' ? 'left' : i % 2 ? 'left' : 'right');
+
 /* ---- the bay door: three ways in */
 let doorsOpened = false;
 function doorSection() {
@@ -510,7 +545,7 @@ function doorSection() {
   const file = h('input', { type: 'file', accept: '.json,application/json', id: 'up-file', class: 'sr', onchange: (e) => readUpload(e.target.files[0]) });
   const drop = h('label', { class: 'drop', id: 'drop', for: 'up-file', tabindex: '0', onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); file.click(); } } },
     h('span', { html: '<svg viewBox="0 0 44 44" aria-hidden="true"><rect x="8" y="12" width="28" height="24" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M22 4 V24 M15 11 L22 4 L29 11" fill="none" stroke="var(--hazard)" stroke-width="2.5"/></svg>' }),
-    h('span', { style: 'font-weight:600' }, 'Drop a scenario JSON'), h('span', { class: 'k' }, '§3 schema · up to 1 MB · or click to choose'), file);
+    h('span', { style: 'font-weight:600' }, 'Drop a scenario JSON'), h('span', { class: 'k' }, 'or click · up to 1 MB'), file);
   ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', (e) => readUpload(e.dataTransfer.files[0]));
@@ -523,7 +558,7 @@ function doorSection() {
     h('div', { class: 'dlamp a', html: lamp }), h('div', { class: 'dlamp b', html: lamp }),
     door('FROM SCRATCH', h('div', { class: 'inside' },
       h('div', { class: 'bigfig' }, S.steps.length + ' steps'),
-      h('p', { class: 'why', style: 'margin:0;color:var(--ink)' }, 'About ' + S.fields.length + ' answers. Each one says why the bay asks and which parts it moves.'),
+      h('p', { class: 'why', style: 'margin:0;color:var(--ink)' }, 'About ' + S.fields.length + ' answers.'),
       h('ul', { class: 'steplist' }, S.steps.map((s) => h('li', {}, s.name))),
       h('button', { class: 'btn p', type: 'button', style: 'margin-top:auto', onclick: () => { setScenario({}, ''); go('#/q/1'); } }, 'Start the fitting ', h('span', { class: 'arr' }, '→')))),
     door('SCENARIOS', h('div', { class: 'inside', style: 'gap:0' },
@@ -538,15 +573,27 @@ function doorSection() {
     (() => { const s = document.createElementNS(SVG_NS, 'svg'); s.setAttribute('class', 'scene'); s.setAttribute('viewBox', '0 0 1600 900'); s.setAttribute('preserveAspectRatio', 'xMidYMax slice'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = `<g>${FB.bay({ lamps: [], floorY: 900 }).back}</g>`; return s; })(),
     h('div', { class: 'grain' }),
     h('button', { class: 'reshut', id: 'reshut', type: 'button', onclick: () => { doors.classList.add('shut'); setTimeout(() => doors.classList.remove('shut'), reduce() ? 0 : 900); } }, 'close the shutters again'),
-    h('div', { class: 'door-head' }, h('h2', { class: 'h2', id: 'door-h' }, 'Three ways into the bay'), h('p', { class: 'lede' }, 'Every way in stops at the same engine, ', h('span', {}, 'so the parts depend only on your answers, never on how you arrived.'))),
+    h('div', { class: 'door-head' }, h('h2', { class: 'h2', id: 'door-h' }, 'Three ways into the bay'), h('p', { class: 'lede' }, 'One engine behind every door.'), info('why it matters', 'The parts depend only on your answers, never on how you arrived.')),
     doors,
     h('div', { class: 'bayfloor', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('span', { class: 'dash' }))));
-  /* resting state is open; the first visit rolls the shutters up once (not under reduced motion or ?shot=1) */
+  /* resting state is open. On the first visit the shutters render shut and roll up once the row is ~40% in view,
+     after a short beat, so the user actually sees it. Reduced motion and ?shot=1 render them open. */
   if (!doorsOpened) {
-    doorsOpened = true;
-    if (!reduce() && !SHOT()) {
+    if (!motionOK() || typeof IntersectionObserver === 'undefined') doorsOpened = true;
+    else {
       doors.classList.add('instant', 'shut');
-      requestAnimationFrame(() => { void doors.offsetWidth; doors.classList.remove('instant'); requestAnimationFrame(() => requestAnimationFrame(() => doors.classList.remove('shut'))); });
+      requestAnimationFrame(() => { void doors.offsetWidth; doors.classList.remove('instant'); });
+      const io = new IntersectionObserver((ents) => {
+        if (!ents.some((e) => e.isIntersecting && e.intersectionRatio >= 0.4)) return;
+        io.disconnect();
+        setTimeout(() => {
+          if (!doors.isConnected) return;
+          if (!motionOK()) doors.classList.add('instant');
+          doors.classList.remove('shut');
+          setTimeout(() => { doorsOpened = true; doors.classList.remove('instant'); }, 900);
+        }, mvar('--m-door-beat', 200));
+      }, { threshold: [0.4] });
+      io.observe(doors);
     }
   }
   fillStatuses();
@@ -645,9 +692,9 @@ function viewQuestion(n, focusPath) {
         return h('li', { class: s.n === step.n ? 'now' : done ? 'done' : '' }, h('a', { href: '#/q/' + s.n, 'aria-current': s.n === step.n ? 'step' : false }, s.name), h('span', {}, s.n === step.n ? '' : done ? stepTag(s.n) : stepDone(s.n)));
       }))),
     h('div', { class: 'panel form' },
-      h('div', { class: 'top2' }, h('div', {}, h('div', { class: 'k' }, 'step ' + step.n + ' of ' + S.steps.length + ' · ' + scenarioTitle()), h('h2', { class: 'h2', style: 'font-size:36px;margin-top:6px' }, step.name)),
+      h('div', { class: 'top2' }, h('div', {}, h('div', { class: 'k' }, 'step ' + step.n + ' of ' + S.steps.length + ' · ' + scenarioTitle()), h('h2', { class: 'h2', style: 'font-size:36px;margin-top:6px' }, step.name),
+        info('required fields', 'Answer them before the run, or let the pre-fit check fill them with documented defaults.')),
         h('span', { class: 'chip hz', style: 'margin-top:6px' }, part === 'bolt' ? 'fits the bolt-ons' : 'fits the ' + part)),
-      h('p', { class: 'why', style: 'font-size:15px' }, 'Fields marked required must be answered before the engine can run, or the pre-fit check can fill them with documented defaults.'),
       groups.map((g) => h('section', { 'aria-label': g }, groups.length > 1 ? h('h3', { class: 'h3 grp-h' }, g) : null, fields.filter((f) => f.group === g).map(fieldRow))),
       h('div', { class: 'formfoot' },
         idx > 0 ? h('a', { class: 'btn g', href: '#/q/' + S.steps[idx - 1].n }, '← Back to ' + S.steps[idx - 1].name) : h('a', { class: 'btn g', href: '#/' }, '← Bay door'),
@@ -656,15 +703,30 @@ function viewQuestion(n, focusPath) {
       draftDrawer())));
   put(m, sheetFoot('Questionnaire · fitting stand'));
   paintFieldMessages();
-  /* a part that became complete since the last step bolts on (occasional action: gets the weld) */
-  const now = new Set(['visor', 'spine', 'core', 'cradle'].filter(partFitted));
-  const fresh = [...now].filter((p) => !before.has(p));
+  settle($('.quiz', m), 'q');
+  /* a part that became complete bolts on with the hero's weld and its tag line draws (occasional action, once per completion):
+     on arrival from another step, and live, as soon as the answer that completes it is set */
+  const fitSet = () => new Set(['visor', 'spine', 'core', 'cradle'].filter(partFitted));
+  const tagOf = (p) => { const g = $$('#quiz-stage .qtag')[{ visor: 0, spine: 1, cradle: 2 }[p]]; return g ? { leader: g.querySelector('.leader'), box: g.querySelector(':scope > g') } : null; };
+  const fitNow = (fresh) => {
+    const svg = $('#quiz-stage svg.bot'); if (!svg || !fresh.length) return;
+    fresh.forEach((p, i) => boltPart(svg, p, boltFrom(p, i), 120 + i * mvar('--m-bolt-gap', 180), tagOf(p)));
+    $('#quiz-live').textContent = fresh.join(' and ') + ' fitted.';
+  };
+  const now = fitSet();
   S.fitParts = now;
-  const svg = $('#qbot');
-  if (svg && fresh.length) {
-    fresh.forEach((p, i) => { const g = svg.querySelector(`.pt[data-part="${p}"]`); if (g) { g.classList.remove('fit'); g.classList.add('empty'); setTimeout(() => FB.boltOn(svg, p, p === 'cradle' || p === 'core' ? 'top' : i % 2 ? 'left' : 'right'), 120 + i * 140); } });
-    $('#quiz-live').textContent = fresh.join(' and ') + ' fitted. The part itself is chosen when you run the fitting.';
-  }
+  fitNow([...now].filter((p) => !before.has(p)));
+  const panel = $('.quiz .panel.form', m);
+  const recheck = () => setTimeout(() => {
+    if (!panel.isConnected || S.edit) return;
+    const cur = fitSet(), prev = S.fitParts || new Set();
+    const fresh = [...cur].filter((p) => !prev.has(p));
+    if (!fresh.length && [...prev].every((p) => cur.has(p))) return;
+    S.fitParts = cur;
+    const st = $('#quiz-stage'); if (st) st.innerHTML = quizStage(part);
+    fitNow(fresh);
+  }, 0);
+  if (panel) ['change', 'input', 'click'].forEach((ev) => panel.addEventListener(ev, recheck));
   if (focusPath) {
     const el = document.querySelector('[data-path="' + CSS.escape(focusPath) + '"]');
     if (el) { el.classList.add('focus-flash'); el.scrollIntoView({ block: 'center' }); const i = el.querySelector('input,select,textarea,button'); if (i) i.focus(); }
@@ -853,12 +915,12 @@ function viewReview() {
   const holder = h('div', { id: 'review-errors' });
   const sw = (on, labelId, onclick, disabled) => h('button', { class: 'sw', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-labelledby': labelId, disabled, onclick });
   put(m, sheetHead('pre-fit check — answers before assembly'),
-    hd2('rev-h', 'Pre-fit check', 'Everything you said, exactly as the engine will receive it.', 'Clashes and missing answers show here, not after the run.'),
+    hd2('rev-h', 'Pre-fit check', 'Your answers, exactly as the engine receives them.'),
     holder,
     h('div', { class: 'review' },
       h('div', { class: 'panel pad' }, h('div', { class: 'mini', id: 'rev-stage', style: 'margin:-24px -24px 0', html: stage }),
         h('div', { class: 'counts' }, h('div', {}, h('b', {}, hard.length), h('span', {}, 'clamps')), h('div', {}, h('b', {}, soft.length), h('span', {}, 'springs')), h('div', {}, h('b', {}, missingDef.length), h('span', {}, 'defaults'))),
-        h('p', { class: 'why', style: 'margin-top:12px' }, 'Clamps hold the bay to an answer; springs bend toward it and warn when they can’t.')),
+        h('div', { style: 'margin-top:12px' }, info('clamps and springs', 'Clamps hold the bay to an answer; springs bend toward it and warn when they can’t. Clashes and missing answers show here, before the run.'))),
       h('div', { class: 'panel pad' },
         h('div', { class: 'grp', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4 H15 V8 H9 V16 H15 V20 H5 Z" fill="var(--crit)" stroke="#0B0F14" stroke-width="1.5"/><path d="M15 12 H21 M18 9 V15" stroke="var(--ink)" stroke-width="2.4"/></svg>Clamps · never bent' }),
         hard.length ? h('table', { class: 'resp' }, h('thead', {}, h('tr', {}, h('th', {}, 'answer'), h('th', {}, 'value'), h('th', {}, 'the bay treats it as'))), h('tbody', {}, hard.map((r) => tr(r, 'hard')))) : h('p', { class: 'muted' }, 'No hard constraints answered yet.'),
@@ -867,12 +929,11 @@ function viewReview() {
         h('div', { class: 'grp', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="3 2"/><path d="M8 12 H16" stroke="var(--muted)" stroke-width="2"/></svg>Left blank' }),
         missingDef.length || missingReq.length ? h('table', { class: 'resp' }, h('tbody', {}, [...missingReq.filter((f) => f.default == null), ...missingDef].map((f) => h('tr', {}, h('td', {}, h('code', {}, f.path)), h('td', { class: 'muted' }, f.default != null ? 'missing → ' + fmtVal(f.default) : 'missing'), h('td', {}, h('span', { class: 'treat', style: 'color:var(--muted)' }, f.required ? (f.default != null ? 'required · default available' : 'required') : 'documented default')))))) : h('p', { class: 'muted' }, 'Every field is answered.')),
       h('div', { class: 'panel pad' },
-        h('div', { class: 'opt2' }, sw(S.fill, 'o1', (e) => { S.fill = !S.fill; e.currentTarget.setAttribute('aria-checked', S.fill ? 'true' : 'false'); }), h('div', { id: 'o1' }, h('b', {}, 'Fill missing answers with documented defaults'), h('div', { class: 'why' }, 'Each one is listed under Assumptions. Leave it off to see exactly which answers are missing.'))),
+        h('div', { class: 'opt2' }, sw(S.fill, 'o1', (e) => { S.fill = !S.fill; e.currentTarget.setAttribute('aria-checked', S.fill ? 'true' : 'false'); }), h('div', { id: 'o1' }, h('b', {}, 'Fill missing answers with documented defaults'), h('div', { class: 'why' }, 'Each is listed under Assumptions.'))),
         h('button', { class: 'btn p', id: 'run-btn', type: 'button', style: 'width:100%;margin-top:14px', onclick: () => run() }, 'Run the fitting ', h('span', { class: 'arr' }, '→')),
         h('a', { class: 'btn g', href: '#/q/1', style: 'width:100%;margin-top:10px' }, 'Edit answers'),
-        h('p', { class: 'k', style: 'margin:12px 0 0' }, 'same answers, same body: no clock, no randomness'))),
-    draftDrawer(), sheetFoot('Pre-fit check · clamps and springs'));
-  scheduleValidate(0);
+        h('p', { class: 'k', style: 'margin:12px 0 0' }, 'same answers, same body'))),
+    draftDrawer(), sheetFoot('Pre-fit check · clamps and springs'));  scheduleValidate(0);
   if (S.valid) viewReviewErrors(holder);
 }
 function viewReviewErrors(holder) {
@@ -974,7 +1035,19 @@ function viewResult() {
     sheetFoot('Fitted body · assembly diagram'));
   drawExploded(res, xp);
   renderDetail();
+  settle($('.res', m), 'result');
+  /* first render of a result only: the parts bolt on in stack order, each tag drawing after its lock, then the bolt-ons settle */
+  if (!seenResults.has(res)) {
+    seenResults.add(res);
+    const svg = $('svg.bot', xp), top = xp.querySelector(':scope > svg');
+    if (svg && top && motionOK()) {
+      const leaders = $$(':scope > path.leader', top), boxes = $$(':scope > foreignObject', top), gap = mvar('--m-bolt-gap', 180);
+      PARTS.forEach((p, i) => { if (res.stack[p.layer]) boltPart(svg, p.part, boltFrom(p.part, i), 160 + i * gap, { leader: leaders[i], box: boxes[i] }); });
+      $$('.bc', boltrow).forEach((b, i) => b.animate([{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: mvar('--m-settle', 220), delay: 160 + PARTS.length * gap + 300 + i * 40, easing: M_OUT, fill: 'backwards' }));
+    }
+  }
 }
+const seenResults = new WeakSet();
 /* exploded scene: robot with four callouts, all live data */
 const RXo = 250, RYo = 40;
 const at = (x, y) => [RXo + (x - 70), RYo + (y + 10)];
