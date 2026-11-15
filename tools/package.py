@@ -63,6 +63,8 @@ README_ITEMS = [
 ]
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+# Bundled licence texts must ship verbatim, including the font author's contact address.
+THIRD_PARTY_LICENCES = ("OFL.txt",)
 ALLOWED_EMAIL_DOMAINS = ("example.com", "example.org", "example.net", "localhost")
 HOME_RE = re.compile(r"/home/[A-Za-z0-9_.-]+|/Users/[A-Za-z0-9_.-]+|[A-Za-z]:\\Users\\")
 
@@ -236,14 +238,15 @@ def verify(out: Path, no_report: bool, run_tests: bool) -> int:
     for p, t in text_files(out):
         rel = str(p.relative_to(out))
         for m in EMAIL_RE.findall(t):
-            if (me and m.lower() == me) or not m.lower().endswith(ALLOWED_EMAIL_DOMAINS):
+            third_party_licence = p.name in THIRD_PARTY_LICENCES and m.lower() != me
+            if not third_party_licence and ((me and m.lower() == me) or not m.lower().endswith(ALLOWED_EMAIL_DOMAINS)):
                 emails.append(f"{rel}: {m}")
         if HOME_RE.search(t):
             homes.append(rel)
     for p in out.rglob(".env*"):
         if p.name != ".env.example":
             envs.append(str(p.relative_to(out)))
-    R.report(not emails, "f. no email addresses in shipped files (example.* excepted)", "; ".join(sorted(set(emails))[:6]))
+    R.report(not emails, "f. no email addresses in shipped files (example.* and bundled licences excepted)", "; ".join(sorted(set(emails))[:6]))
     R.report(not homes, "f. no absolute home paths in shipped files", ", ".join(sorted(set(homes))[:6]))
     R.report(not envs, "f. no .env file besides .env.example", ", ".join(envs))
 
