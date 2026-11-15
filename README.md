@@ -115,11 +115,11 @@ field errors. Other commands:
 
 The sensitivity table in the report comes from `python3 tools/sensitivity.py --base P2 --base P3`.
 
-## 6. LLM features
+## 6. LLM usage
 
-This build has **no LLM features**. Every part of the recommendation, including parsing
-`project.description`, is deterministic code and knowledge-base facts, so there is nothing to switch off and
-no API key to set. The `llm` flag accepted by the API is ignored, and every output reports `"llm_used": false`.
+StackSense uses **no LLM**. Stack selection is the engine's own logic, and parsing `project.description` and
+every explanation are deterministic code over knowledge-base facts, so there is nothing to configure and no
+API key to set. Every output reports `"llm_used": false`.
 
 ## 7. Project structure
 

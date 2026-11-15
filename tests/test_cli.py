@@ -157,11 +157,9 @@ class CliTests(unittest.TestCase):
         self.assertIn("== chosen", r.stdout)
         self.assertEqual(cli("explain", str(PUBLIC / "P2.json"), "--layer", "nope").returncode, 2)
 
-    def test_later_subcommands(self):
-        r = cli("wizard")
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("not available yet", r.stderr)
-        self.assertIn("wizard", cli("--help").stdout)
+    def test_no_wizard_subcommand(self):
+        self.assertEqual(cli("wizard").returncode, 2)
+        self.assertNotIn("wizard", cli("--help").stdout)
 
 
 if __name__ == "__main__":

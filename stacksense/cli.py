@@ -11,7 +11,6 @@ from . import engine, output
 from .io import load_scenarios, output_name, write_output
 from .validate import validate
 
-_LATER = ("wizard",)
 _PUBLIC_DIR = Path(__file__).resolve().parent.parent / "scenarios" / "public"
 
 
@@ -238,11 +237,6 @@ def _cmd_explain(args) -> int:
     return 0
 
 
-def _cmd_later(args) -> int:
-    _err(f"{args.command}: not available yet")
-    return 2
-
-
 def _cmd_serve(args) -> int:
     from . import server
     try:
@@ -335,10 +329,6 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--max-rejected", type=int, default=10)
     e.add_argument("--fill-defaults", action="store_true")
     e.set_defaults(func=_cmd_explain)
-    for name in _LATER:
-        p = sub.add_parser(name, help="not available yet", add_help=False)
-        p.add_argument("rest", nargs=argparse.REMAINDER)
-        p.set_defaults(func=_cmd_later)
     return ap
 
 

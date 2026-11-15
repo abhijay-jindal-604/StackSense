@@ -55,7 +55,7 @@ class ServerTest(unittest.TestCase):
         st, d = self.get_json("/api/health")
         self.assertEqual(st, 200)
         self.assertTrue(d["ok"])
-        self.assertEqual(d["llm"], "off")
+        self.assertNotIn("llm", d)
         self.assertTrue(d["engine_version"] and d["kb_version"])
 
     def test_no_cors_header(self):
@@ -103,9 +103,9 @@ class ServerTest(unittest.TestCase):
             self.assertIn("application/json", h["Content-Type"])
             self.assertEqual(b.decode("utf-8"), output.dumps(engine.recommend(raw)), f.name)
 
-    def test_recommend_fill_defaults_and_llm_flag(self):
+    def test_recommend_fill_defaults_and_ignores_unknown_keys(self):
         raw = json.loads(PUBLIC[0].read_text())
-        st, _, b = self.post_json("/api/recommend", {"scenario": raw, "fill_defaults": True, "llm": False})
+        st, _, b = self.post_json("/api/recommend", {"scenario": raw, "fill_defaults": True, "llm": True, "bogus": 1})
         self.assertEqual(st, 200)
         self.assertEqual(b.decode(), output.dumps(engine.recommend(raw, fill_defaults=True)))
 
@@ -132,7 +132,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertTrue(src and set(src[0]) == {"key", "title", "url", "accessed"})
 
-    def test_warnings_sensitivity_diff_and_llm_off(self):
+    def test_warnings_sensitivity_diff_and_no_llm_route(self):
         st, rows = self.get_json("/api/warnings")
         self.assertEqual(st, 200)
         self.assertIn("RESIDENCY_UNVERIFIABLE", {r["code"] for r in rows})
@@ -153,7 +153,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post_json("/api/diff", {"a": p1})[0], 400)
         self.assertEqual(self.post_json("/api/diff", {"a": [], "b": {}})[0], 400)
         st, _, b = self.post_json("/api/llm/suggest", {"description": "x"})
-        self.assertEqual(st, 409)
+        self.assertEqual(st, 404)
         self.assertIn("error", json.loads(b))
 
     # ---------------------------------------------------------------- errors

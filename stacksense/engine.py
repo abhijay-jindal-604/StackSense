@@ -1,6 +1,6 @@
 """Recommendation pipeline (plan section 3.17).
 
-``recommend(raw, *, fill_defaults=False, trace=True, llm=None) -> dict`` is total: it never raises.
+``recommend(raw, *, fill_defaults=False, trace=True) -> dict`` is total: it never raises.
 
 1. ``validate`` -> errors? ``invalid_input``.
 2. ``description.extract``, ``existing.analyse``, ``profile.derive``.
@@ -15,7 +15,7 @@
 7. Empty core layer, no compatible combination, or a hard-vs-hard conflict -> ``infeasible`` with a
    critical warning and ``nearest_feasible`` (each hard constraint relaxed in turn; when none works
    alone, pairs of relaxations; names only).
-8. ``explain.*``, ``status.decide``, ``output.build``. The LLM is never consulted for the stack.
+8. ``explain.*``, ``status.decide``, ``output.build``. No LLM is used anywhere; the stack is the engine's own logic.
 
 Pure and deterministic: no clock, no randomness, no environment reads.
 """
@@ -68,10 +68,10 @@ def _safe_scenario_id(raw: Any) -> str | None:
     return sid if isinstance(sid, str) else None
 
 
-def recommend(raw: Any, *, fill_defaults: bool = False, trace: bool = True, llm=None) -> dict:
+def recommend(raw: Any, *, fill_defaults: bool = False, trace: bool = True) -> dict:
     """Return a section 4 result for one scenario. Never raises."""
     try:
-        return _pipeline(raw, fill_defaults=fill_defaults, trace=trace, llm=llm)
+        return _pipeline(raw, fill_defaults=fill_defaults, trace=trace)
     except Exception as exc:  # noqa: BLE001 - total function by contract
         return output.build(
             status="infeasible",
@@ -420,7 +420,7 @@ def _dedupe(warnings) -> list[dict]:
     return out
 
 
-def _pipeline(raw, *, fill_defaults, trace, llm) -> dict:
+def _pipeline(raw, *, fill_defaults, trace) -> dict:
     kbv = kb_version()
     # 1. validate
     v = validate(raw, fill_defaults=fill_defaults)

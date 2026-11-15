@@ -197,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
         segs = p.split("/")[2:]  # after '', 'api'
         route = segs[0] if segs else ""
         get_only = {"health", "schema", "scenarios", "kb", "sources", "warnings", "sensitivity"}
-        post_only = {"validate", "recommend", "diff", "llm"}
+        post_only = {"validate", "recommend", "diff"}
         if route in get_only:
             if method not in ("GET", "HEAD"):
                 raise ApiError(405, "Use GET for this endpoint.")
@@ -209,8 +209,7 @@ class Handler(BaseHTTPRequestHandler):
         n = len(segs)
 
         if route == "health" and n == 1:
-            return self._json(200, {"ok": True, "engine_version": __version__, "kb_version": kb.kb_version(),
-                                    "llm": "off"}, head)
+            return self._json(200, {"ok": True, "engine_version": __version__, "kb_version": kb.kb_version()}, head)
         if route == "schema" and n == 1:
             return self._json(200, schema.schema_for_ui(), head)
         if route == "scenarios" and n == 1:
@@ -260,7 +259,6 @@ class Handler(BaseHTTPRequestHandler):
             body = _json_body(self)
             raw = _need_scenario(body)
             fill = _flag(body, "fill_defaults")
-            _flag(body, "llm")  # accepted; no LLM module in this build, the stack is identical either way
             result = engine.recommend(raw, fill_defaults=fill)
             return self._send(200, output.dumps(result).encode("utf-8"), "application/json; charset=utf-8")
         if route == "diff" and n == 1:
@@ -277,9 +275,6 @@ class Handler(BaseHTTPRequestHandler):
             d = _diff.diff(oa, ob, scenario_a=sa, scenario_b=sb) if sa is not None and sb is not None \
                 else _diff.diff(oa, ob)
             return self._json(200, d)
-        if route == "llm" and n == 2 and segs[1] == "suggest":
-            _json_body(self)
-            raise ApiError(409, "The LLM feature is off; no suggestions are available.")
         raise ApiError(404, "Unknown API path.")
 
 
