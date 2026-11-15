@@ -109,7 +109,7 @@ const SHOT = () => document.documentElement.hasAttribute('data-shot');
 // ---------------------------------------------------------------- state
 const S = {
   health: null, schema: null, fields: [], steps: [], scenarios: [],
-  scenario: {}, scenarioName: '', fill: false,
+  scenario: {}, scenarioName: '', fromUpload: false, fill: false,
   result: null, raw: null, running: false,
   errMap: {}, valid: null, touched: new Set(), showAll: false,
   sel: 'backend', tab: 'warnings',
@@ -152,13 +152,13 @@ async function boot() {
 async function loadDemo() {
   const sc = await api('/api/scenarios/P2');
   if (!sc.ok || !isObj(sc.data)) return;
-  const r = await post('/api/recommend', { scenario: sc.data, fill_defaults: false, llm: false });
+  const r = await post('/api/recommend', { scenario: sc.data, fill_defaults: false });
   if (r.ok && r.data && r.data.stack) S.demo = { scenario: sc.data, result: r.data };
 }
 
 function renderChrome() {
   const hd = S.health;
-  $('#meta').replaceChildren(h('span', {}, h('i', { class: 'dot' }), 'deterministic · LLM ' + (hd ? hd.llm : 'unknown')));
+  $('#meta').replaceChildren(h('span', {}, h('i', { class: 'dot' }), 'deterministic'));
   $('#footer').replaceChildren(
     h('span', {}, 'engine ', h('code', {}, hd ? hd.engine_version : 'unknown')),
     h('span', {}, 'knowledge base ', h('code', {}, hd ? hd.kb_version : 'unknown')),
@@ -166,6 +166,7 @@ function renderChrome() {
 }
 
 /* one nav, the same eight items on every screen; result-only items stay in place, disabled */
+const ALIAS = { sensitivity: 'sens', catalogue: 'kb', catalog: 'kb', parts: 'kb', 'pre-fit': 'review', prefit: 'review', 'what-if': 'whatif', how: 'about' };
 const NAV = [['#/', 'Fitting bay', 'start'], ['#/q/1', 'Questionnaire', 'q'], ['#/review', 'Pre-fit check', 'review'],
   ['#/result', 'Fitted body', 'result', 1], ['#/whatif', 'What-if', 'whatif', 1], ['#/sens', 'Sensitivity', 'sens', 1],
   ['#/kb', 'Parts catalogue', 'kb'], ['#/about', 'How it decides', 'about']];
@@ -183,7 +184,8 @@ function parseHash() {
 }
 function route() {
   const { parts, q } = parseHash();
-  const v = parts[0] || 'start';
+  let v = parts[0] || 'start';
+  if (ALIAS[v]) { const qs = location.hash.includes('?') ? '?' + location.hash.split('?')[1] : ''; history.replaceState(null, '', '#/' + [ALIAS[v], ...parts.slice(1)].join('/') + qs); parts[0] = v = ALIAS[v]; }
   const m = main();
   m.replaceChildren();
   m.className = '';
@@ -193,8 +195,15 @@ function route() {
   paintNav(v);
   document.body.dataset.view = v;
   const views = { start: viewStart, q: () => viewQuestion(Number(parts[1]) || 1, q.get('f')), review: viewReview, result: viewResult, whatif: viewWhatIf, sens: viewSens, kb: viewKb, about: viewAbout };
-  (views[v] || viewStart)();
+  if (!views[v]) { document.title = 'StackSense: no such screen'; paintNav(''); document.body.dataset.view = 'none'; viewMissing(v); return; }
+  views[v]();
   document.title = 'StackSense: ' + ({ start: 'fitting bay', q: 'questionnaire', review: 'pre-fit check', result: 'fitted body', whatif: 'what-if', sens: 'sensitivity', kb: 'parts catalogue', about: 'how it decides' }[v] || 'fitting bay');
+}
+function viewMissing(v) {
+  put(main(), h('section', { class: 'panel pad nosuch', 'aria-labelledby': 'ns-h' },
+    h('h2', { class: 'h2', id: 'ns-h' }, 'No such screen'),
+    h('p', { class: 'why' }, 'Nothing is mounted at ', h('code', {}, '#/' + v), '. These screens exist:'),
+    h('ul', { class: 'nosuch-links' }, NAV.filter(([, , , needs]) => !needs || S.result).map(([href, label]) => h('li', {}, h('a', { href }, label))))));
 }
 const go = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 
@@ -217,7 +226,8 @@ async function loadScenario(id, opts) {
   if (!(opts && opts.silent)) go('#/q/1');
   return true;
 }
-function setScenario(obj, name) {
+function setScenario(obj, name, fromUpload) {
+  S.fill = false; S.fromUpload = !!fromUpload;
   S.scenario = obj; S.scenarioName = name || ''; S.result = null; S.raw = null; S.errMap = {}; S.touched = new Set(); S.showAll = false; S.whatif = null; S.upload = null; S.fitParts = null;
   scheduleValidate(0);
 }
@@ -341,7 +351,7 @@ function heroSection() {
   const tags = h('div', { class: 'tags', id: 'tags' });
   put(sec, stage, tp, tags);
   if (res) put(sec, heroDock(sc, res));
-  put(sec, h('div', { class: 'below' }), h('footer', { class: 'sheet-foot', 'aria-hidden': 'true' }, h('div', { class: 'sub' }, h('span', {}, 'deterministic · LLM ' + ((S.health || {}).llm || 'off') + ' · Python stdlib'), h('span', {}, '01 visor · 02 spine · 03 core · 04 cradle')), h('b', {}, 'Fitting bay — assembly diagram')));
+  put(sec, h('div', { class: 'below' }), h('footer', { class: 'sheet-foot', 'aria-hidden': 'true' }, h('div', { class: 'sub' }, h('span', {}, 'deterministic · Python stdlib'), h('span', {}, '01 visor · 02 spine · 03 core · 04 cradle')), h('b', {}, 'Fitting bay — assembly diagram')));
   requestAnimationFrame(() => buildHeroScene(sec));
   return sec;
 }
@@ -371,7 +381,7 @@ function heroDock(sc, res) {
   const f = S.fields.find((x) => x.path === 'budget.monthly_infra_usd');
   return h('form', { class: 'dock', id: 'dock', onsubmit: (e) => e.preventDefault(), 'aria-label': 'Questionnaire, budget step' },
     h('div', { class: 'hzs hazard-edge', 'aria-hidden': 'true' }),
-    h('ol', { class: 'steps' }, S.steps.map((s) => h('li', { class: s.n < 4 ? 'done' : s.n === 4 ? 'now' : '', 'aria-current': s.n === 4 ? 'step' : false }, s.name, h('span', {}, s.n < 4 ? 'bolted' : '')))),
+    h('ol', { class: 'steps' }, S.steps.map((s) => h('li', { class: s.n === 4 ? 'now' : '', 'aria-current': s.n === 4 ? 'step' : false }, s.name, h('span', {}, '')))),
     h('div', { class: 'q' },
       h('div', { class: 'k' }, 'step 4 of ' + S.steps.length + ' · ', h('code', {}, 'budget.monthly_infra_usd')),
       h('h2', {}, f ? f.label : 'Monthly infrastructure budget'),
@@ -548,7 +558,7 @@ async function fillStatuses() {
   for (const s of pub) {
     const sc = await api('/api/scenarios/' + s.id);
     if (!sc.ok) continue;
-    const r = await post('/api/recommend', { scenario: sc.data, fill_defaults: false, llm: false });
+    const r = await post('/api/recommend', { scenario: sc.data, fill_defaults: false });
     if (!r.ok || !r.data) continue;
     const res = r.data;
     const type = getp(sc.data, 'project.type'), resid = getp(sc.data, 'infrastructure.data_residency'), comp = getp(sc.data, 'compliance');
@@ -569,14 +579,14 @@ function readText(text, name) {
   text = String(text).replace(/^﻿/, '');
   try {
     const obj = JSON.parse(text);
-    S.upload = null; setScenario(obj, name); run();
+    S.upload = null; setScenario(obj, name, true); run();
   } catch (e) {
     S.upload = { error: 'This is not valid JSON: ' + e.message, raw: text };
     route();
     const d = $('#s-door'); if (d) d.scrollIntoView();
   }
 }
-function sendRawAnyway() { const raw = S.upload.raw; setScenario(raw, 'uploaded text'); run(); }
+function sendRawAnyway() { const raw = S.upload.raw; setScenario(raw, 'uploaded text', true); run(); }
 
 // ---------------------------------------------------------------- questionnaire
 const AVAIL_DOWNTIME = (v) => {
@@ -586,6 +596,9 @@ const AVAIL_DOWNTIME = (v) => {
 };
 function fieldStep(n) { return S.fields.filter((f) => f.step === n); }
 function stepDone(n) { const fs = fieldStep(n); return fs.filter((f) => getp(S.scenario, f.path) !== undefined).length + '/' + fs.length; }
+function stepTouched(n) { return fieldStep(n).some((f) => S.touched.has(f.path)); }
+/* a finished step reads 'bolted' only when the user set an answer in it; answers from a loaded file read 'from P3' / 'from upload' */
+function stepTag(n) { return (S.scenarioName || S.fromUpload) && !stepTouched(n) ? (S.fromUpload ? 'from upload' : 'from ' + S.scenarioName) : 'bolted'; }
 function stepComplete(n) {
   const fs = fieldStep(n); const set = fs.filter((f) => getp(S.scenario, f.path) !== undefined);
   return set.length > 0 && fs.filter((f) => f.required).every((f) => getp(S.scenario, f.path) !== undefined);
@@ -621,12 +634,15 @@ function viewQuestion(n, focusPath) {
   const idx = S.steps.findIndex((s) => s.n === step.n);
   const next = S.steps[idx + 1];
   put(m, sheetHead('questionnaire — fitting stand', scenarioTitle() + ' · ' + step.name.toLowerCase()));
+  if (S.scenarioName || S.fromUpload) put(m, h('div', { class: 'editing-banner', role: 'status' },
+    h('span', {}, 'Editing ', h('b', {}, S.fromUpload ? 'your upload' : S.scenarioName), ' · answers marked “from ' + (S.fromUpload ? 'upload' : S.scenarioName) + '” were loaded, not typed.'),
+    h('button', { class: 'btn g s', type: 'button', onclick: () => { setScenario({}, ''); S.valid = null; viewQuestionRefresh(); paintNav('q'); } }, 'Start blank')));
   put(m, h('div', { class: 'quiz' },
     h('div', { class: 'stand' },
       h('div', { class: 'mini', id: 'quiz-stage', html: quizStage(part) }),
       h('ol', { class: 'rail', 'aria-label': 'Questionnaire steps' }, S.steps.map((s) => {
         const done = stepComplete(s.n);
-        return h('li', { class: s.n === step.n ? 'now' : done ? 'done' : '' }, h('a', { href: '#/q/' + s.n, 'aria-current': s.n === step.n ? 'step' : false }, s.name), h('span', {}, s.n === step.n ? '' : done ? 'bolted' : stepDone(s.n)));
+        return h('li', { class: s.n === step.n ? 'now' : done ? 'done' : '' }, h('a', { href: '#/q/' + s.n, 'aria-current': s.n === step.n ? 'step' : false }, s.name), h('span', {}, s.n === step.n ? '' : done ? stepTag(s.n) : stepDone(s.n)));
       }))),
     h('div', { class: 'panel form' },
       h('div', { class: 'top2' }, h('div', {}, h('div', { class: 'k' }, 'step ' + step.n + ' of ' + S.steps.length + ' · ' + scenarioTitle()), h('h2', { class: 'h2', style: 'font-size:36px;margin-top:6px' }, step.name)),
@@ -647,7 +663,7 @@ function viewQuestion(n, focusPath) {
   const svg = $('#qbot');
   if (svg && fresh.length) {
     fresh.forEach((p, i) => { const g = svg.querySelector(`.pt[data-part="${p}"]`); if (g) { g.classList.remove('fit'); g.classList.add('empty'); setTimeout(() => FB.boltOn(svg, p, p === 'cradle' || p === 'core' ? 'top' : i % 2 ? 'left' : 'right'), 120 + i * 140); } });
-    $('#quiz-live').textContent = fresh.join(' and ') + ' bolted. The part itself is chosen when you run the fitting.';
+    $('#quiz-live').textContent = fresh.join(' and ') + ' fitted. The part itself is chosen when you run the fitting.';
   }
   if (focusPath) {
     const el = document.querySelector('[data-path="' + CSS.escape(focusPath) + '"]');
@@ -836,14 +852,13 @@ function viewReview() {
   };
   const holder = h('div', { id: 'review-errors' });
   const sw = (on, labelId, onclick, disabled) => h('button', { class: 'sw', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-labelledby': labelId, disabled, onclick });
-  const llm = (S.health || {}).llm || 'off';
   put(m, sheetHead('pre-fit check — answers before assembly'),
     hd2('rev-h', 'Pre-fit check', 'Everything you said, exactly as the engine will receive it.', 'Clashes and missing answers show here, not after the run.'),
     holder,
     h('div', { class: 'review' },
       h('div', { class: 'panel pad' }, h('div', { class: 'mini', id: 'rev-stage', style: 'margin:-24px -24px 0', html: stage }),
         h('div', { class: 'counts' }, h('div', {}, h('b', {}, hard.length), h('span', {}, 'clamps')), h('div', {}, h('b', {}, soft.length), h('span', {}, 'springs')), h('div', {}, h('b', {}, missingDef.length), h('span', {}, 'defaults'))),
-        h('p', { class: 'why', style: 'margin-top:12px' }, 'Nothing is bolted yet. Clamps hold the bay to an answer; springs bend toward it and warn when they can’t.')),
+        h('p', { class: 'why', style: 'margin-top:12px' }, 'Clamps hold the bay to an answer; springs bend toward it and warn when they can’t.')),
       h('div', { class: 'panel pad' },
         h('div', { class: 'grp', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4 H15 V8 H9 V16 H15 V20 H5 Z" fill="var(--crit)" stroke="#0B0F14" stroke-width="1.5"/><path d="M15 12 H21 M18 9 V15" stroke="var(--ink)" stroke-width="2.4"/></svg>Clamps · never bent' }),
         hard.length ? h('table', { class: 'resp' }, h('thead', {}, h('tr', {}, h('th', {}, 'answer'), h('th', {}, 'value'), h('th', {}, 'the bay treats it as'))), h('tbody', {}, hard.map((r) => tr(r, 'hard')))) : h('p', { class: 'muted' }, 'No hard constraints answered yet.'),
@@ -853,7 +868,6 @@ function viewReview() {
         missingDef.length || missingReq.length ? h('table', { class: 'resp' }, h('tbody', {}, [...missingReq.filter((f) => f.default == null), ...missingDef].map((f) => h('tr', {}, h('td', {}, h('code', {}, f.path)), h('td', { class: 'muted' }, f.default != null ? 'missing → ' + fmtVal(f.default) : 'missing'), h('td', {}, h('span', { class: 'treat', style: 'color:var(--muted)' }, f.required ? (f.default != null ? 'required · default available' : 'required') : 'documented default')))))) : h('p', { class: 'muted' }, 'Every field is answered.')),
       h('div', { class: 'panel pad' },
         h('div', { class: 'opt2' }, sw(S.fill, 'o1', (e) => { S.fill = !S.fill; e.currentTarget.setAttribute('aria-checked', S.fill ? 'true' : 'false'); }), h('div', { id: 'o1' }, h('b', {}, 'Fill missing answers with documented defaults'), h('div', { class: 'why' }, 'Each one is listed under Assumptions. Leave it off to see exactly which answers are missing.'))),
-        h('div', { class: 'opt2', style: 'box-shadow:none' }, sw(false, 'o2', null, true), h('div', { id: 'o2' }, h('b', {}, 'Reword tags with an LLM'), h('div', { class: 'why' }, 'The LLM is ' + llm + ' in this build. Wording only; the parts are identical either way.'))),
         h('button', { class: 'btn p', id: 'run-btn', type: 'button', style: 'width:100%;margin-top:14px', onclick: () => run() }, 'Run the fitting ', h('span', { class: 'arr' }, '→')),
         h('a', { class: 'btn g', href: '#/q/1', style: 'width:100%;margin-top:10px' }, 'Edit answers'),
         h('p', { class: 'k', style: 'margin:12px 0 0' }, 'same answers, same body: no clock, no randomness'))),
@@ -899,7 +913,7 @@ function errorTable(errs) {
 async function run(opts) {
   S.running = true;
   const btn = document.getElementById('run-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Fitting'; }
-  const r = await post('/api/recommend', { scenario: S.scenario, fill_defaults: S.fill, llm: false });
+  const r = await post('/api/recommend', { scenario: S.scenario, fill_defaults: S.fill });
   S.running = false;
   if (!r.ok || !r.data) {
     main().replaceChildren(h('div', { class: 'strip cr', role: 'alert' }, h('span', { class: 'tag crit' }, 'error'), h('div', {}, h('b', {}, 'The engine could not be reached'), h('div', { class: 'why' }, (r.data && r.data.error) || 'HTTP ' + r.status))));
@@ -949,7 +963,7 @@ function viewResult() {
     res.relaxed_constraints && res.relaxed_constraints.length ? h('div', { class: 'strip hz' }, h('span', { class: 'tag hz' }, 'relaxed'), h('div', {}, h('b', {}, 'Constraints the bay loosened, and said so'), h('ul', { class: 'alist' }, res.relaxed_constraints.map((r) => h('li', {}, noteText(r)))))) : null);
   const xp = h('div', { class: 'exploded', id: 'xp' });
   const boltrow = h('div', { class: 'boltrow', id: 'bolts', role: 'group', 'aria-label': 'Bolt-ons: supporting services' }, bolts.map((b) =>
-    h('button', { class: 'bc' + (b.state === 'gap' ? ' gap' : ''), type: 'button', 'data-sel': b.sel, 'aria-pressed': S.sel === b.sel ? 'true' : 'false', onclick: () => pick(b.sel) },
+    h('button', { class: 'bc' + (b.state === 'gap' ? ' gap' : ''), type: 'button', 'data-sel': b.sel, 'aria-label': 'Bolt-on, ' + slotName(b.slot) + ': ' + (b.state === 'gap' ? 'no part fits, ' + b.name : b.name), 'aria-pressed': S.sel === b.sel ? 'true' : 'false', onclick: () => pick(b.sel) },
       h('span', { class: 'idx print-only' + (b.state === 'gap' ? ' hz' : '') }, b.idx), h('span', { class: 'bpic', html: FB.closeup('bolt', { kind: b.kind, state: b.state }) }),
       h('span', { class: 'btxt' }, h('span', {}, slotName(b.slot)), h('b', {}, b.state === 'gap' ? b.name : short(b.name, 40))))));
   const ptabs = h('div', { class: 'ptabs', role: 'tablist', id: 'ptabs', 'aria-label': 'Parts' }, PARTS.map((p) =>
@@ -1121,7 +1135,7 @@ function tabsBlock(res) {
     panel.replaceChildren(tabs.find((t) => t[0] === S.tab)[3]());
   };
   tabs.forEach(([k, label, n]) => list.append(h('button', { role: 'tab', type: 'button', 'data-tab': k, id: 'tab-' + k, onclick: () => { S.tab = k; paint(); },
-    onkeydown: (e) => { const i = tabs.findIndex((t) => t[0] === S.tab); if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { S.tab = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length][0]; paint(); list.querySelector('[data-tab="' + S.tab + '"]').focus(); } } }, label, n != null ? h('em', {}, String(n)) : null)));
+    onkeydown: (e) => { const i = tabs.findIndex((t) => t[0] === S.tab); if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) { e.preventDefault(); S.tab = tabs[e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length][0]; paint(); list.querySelector('[data-tab="' + S.tab + '"]').focus(); } } }, label, n != null ? h('em', {}, String(n)) : null)));
   const wrap = h('div', { class: 'tabs' }, list, panel);
   paint();
   return wrap;
@@ -1483,7 +1497,7 @@ function viewAbout() {
     h('div', {}, h('span', { class: 'tag info' }, 'tag'), h('b', {}, 'Explain'), h('p', {}, 'Reasons are built from the score lines and the filter cuts, not written per scenario.')));
   const tr = S.result && S.result.decision_trace;
   const seenKeys = tr && tr.layers ? [...new Set(Object.values(tr.layers).flatMap((l) => (l.top || []).flatMap((t) => t.contributions.map((c) => c.key))))].sort() : [];
-  put(m, sheetHead('how it decides — pipeline', 'deterministic · LLM ' + (hd.llm || 'off')),
+  put(m, sheetHead('how it decides — pipeline', 'deterministic'),
     hd2('ab-h', 'How the bay decides', 'No model picks the parts.', 'The same answers always give the same body, down to the byte.', runBtn),
     line, stations,
     h('div', { class: 'cols', style: 'grid-template-columns:1fr 1fr;margin-top:20px' },
@@ -1495,7 +1509,6 @@ function viewAbout() {
       h('div', { class: 'panel pad' }, h('div', { class: 'sect', style: 'margin-top:0' }, 'promises'),
         h('p', { style: 'margin:0 0 12px' }, 'Hard constraints are never relaxed silently. If one can’t be met you get ', h('b', {}, 'Can’t assemble'), ', or a critical warning that names it.'),
         h('p', { style: 'margin:0 0 12px' }, 'No clock and no randomness: run it twice and the JSON is identical.'),
-        h('p', { style: 'margin:0 0 12px' }, 'LLM: ', h('span', { class: 'chip ghost' }, hd.llm || 'off'), ' When on, it may only suggest answers from your description and reword explanations; the chosen stack is identical either way.'),
         h('p', { class: 'k', style: 'margin:0' }, 'engine ' + (hd.engine_version || '') + ' · knowledge base ' + (hd.kb_version || '')))),
     sheetFoot('How it decides · the line'));
   wireLine(runBtn, stations);
