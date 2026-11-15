@@ -125,8 +125,6 @@ details.json .row{margin-top:10px}
 .box2[aria-pressed=true]{box-shadow:inset 0 0 0 2px var(--weld)}
 .box2 .src{color:var(--weld-ink)}
 .box2 .ico>span:first-child{display:flex;height:56px}
-#kb-detail:not(:empty){margin-bottom:30px}
-.kbd .cols2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 .seg.kbseg button{white-space:nowrap}
 
 @media (max-width:900px){
@@ -148,7 +146,7 @@ td code{overflow-wrap:anywhere}
 .xco .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .affects{flex-wrap:wrap}.affects code{overflow-wrap:anywhere}
 .subtabs,.ptabs{overflow-x:auto;max-width:100%}
-.hd .acts{max-width:100%;overflow-x:auto}
+.hd .acts{max-width:100%;min-width:0}
 @media (max-width:900px){
   table.warns tr,table.alt tr,table.nf tr{display:block;padding:10px 0;box-shadow:inset 0 -1px 0 var(--line)}
   table.warns td,table.alt td,table.nf td{display:block;border:0;padding:3px 4px;width:auto!important;text-align:left!important}

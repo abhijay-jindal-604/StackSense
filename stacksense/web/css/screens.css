@@ -234,6 +234,63 @@ td.fix{color:var(--ink)}
 .box2.retired h4{text-decoration:line-through;text-decoration-thickness:3px;text-decoration-color:var(--crit);color:var(--muted)}
 .box2.cut{box-shadow:inset 0 0 0 1px var(--crit-line)}
 @media (hover:hover) and (pointer:fine){.box2{transition:transform 200ms var(--ease-out)}.box2:hover{transform:translateY(-3px)}}
+.box2:active{transform:scale(.98)}
+/* layer selector on its own row: never scrolls sideways */
+.kb-bar{margin:-6px 0 18px}
+.seg.kbseg{display:flex;width:max-content;max-width:100%}
+.seg.kbseg button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:9px 16px;min-height:48px}
+.kb-tl{font:400 15px/1 var(--disp);color:var(--ink);letter-spacing:.01em}
+.kb-tc{font:500 11px/1 var(--mono);color:var(--muted)}
+.seg.kbseg button[aria-pressed=true] .kb-tl,.seg.kbseg button[aria-pressed=true] .kb-tc{color:var(--on-acc)}
+.seg.kbseg button:focus-visible{outline:2px solid var(--hazard);outline-offset:-4px}
+/* monogram plate: a stamped, riveted tag bolted onto the part drawing */
+.kb-pic{position:relative;display:flex;align-items:center;height:56px;padding-right:18px}
+.kb-plate{--kb-acc:#F26A2C;position:absolute;right:0;bottom:-2px;display:inline-grid;place-items:center;min-width:34px;height:24px;padding:0 6px;font:400 12.5px/1 var(--disp);letter-spacing:.04em;color:#11161D;background:var(--kb-acc);box-shadow:inset 0 0 0 2px #11161D,2px 2px 0 #0B0F14;
+  background-image:radial-gradient(circle at 4px 4px,#11161D 1.3px,transparent 1.8px),radial-gradient(circle at calc(100% - 4px) 4px,#11161D 1.3px,transparent 1.8px),radial-gradient(circle at 4px calc(100% - 4px),#11161D 1.3px,transparent 1.8px),radial-gradient(circle at calc(100% - 4px) calc(100% - 4px),#11161D 1.3px,transparent 1.8px)}
+.kb-plate[data-acc=weld]{--kb-acc:#F26A2C}.kb-plate[data-acc=hazard]{--kb-acc:#F3B53A}.kb-plate[data-acc=copper]{--kb-acc:#C98450}
+.kb-plate[data-acc=info]{--kb-acc:#86BEDD}.kb-plate[data-acc=steel]{--kb-acc:#A3AEBA}.kb-plate[data-acc=paper]{--kb-acc:#E8DEC6}
+.kb-plate.l{min-width:64px;height:42px;padding:0 12px;font-size:22px;right:18px;bottom:16px;box-shadow:inset 0 0 0 3px #11161D,3px 3px 0 #0B0F14;
+  background-image:radial-gradient(circle at 6px 6px,#11161D 2px,transparent 2.6px),radial-gradient(circle at calc(100% - 6px) 6px,#11161D 2px,transparent 2.6px),radial-gradient(circle at 6px calc(100% - 6px),#11161D 2px,transparent 2.6px),radial-gradient(circle at calc(100% - 6px) calc(100% - 6px),#11161D 2px,transparent 2.6px)}
+.box2.retired .kb-pic,.kb-dpic.retired>.kb-dsvg,.kb-dpic.retired .kb-plate{filter:grayscale(1);opacity:.55}
+/* delivery-kind badge */
+.kb-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font:500 11px var(--mono);color:var(--muted);min-height:0}
+.kb-meta:empty{display:none}
+.kb-kind{display:inline-flex;align-items:center;gap:5px;padding:3px 7px 3px 6px;font:600 10.5px/1 var(--mono);letter-spacing:.04em;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-2)}
+.kb-kind:before{content:"";width:7px;height:7px;background:var(--muted)}
+.kb-kind.managed:before{background:var(--info)}
+.kb-kind.self:before{background:var(--copper);border-radius:50%}
+.kb-kind.baas:before{background:var(--weld);transform:rotate(45deg)}
+.kb-kind.saas:before{background:var(--hazard);border-radius:2px 2px 0 0}
+.kb-kind.both:before{background:linear-gradient(90deg,var(--info) 50%,var(--copper) 50%)}
+.kb-empty{grid-column:1/-1;margin:8px 0 20px;color:var(--muted)}
+/* shelf change: cards are set down one after another (shelf switches only, never on search keystrokes) */
+@keyframes kb-in{from{opacity:0;transform:translateY(8px)}}
+.cards.kb-in>.box2{animation:kb-in 240ms var(--ease-out) backwards;animation-delay:calc(var(--i,0) * 22ms)}
+@media (prefers-reduced-motion:reduce){.cards.kb-in>.box2{animation:none}}
+[data-shot] .cards.kb-in>.box2{animation:none}
+/* detail drawer: slides over the right edge so the shelf stays where it is */
+.kb-drawer{--ease-drawer:cubic-bezier(.32,.72,0,1);position:fixed;top:56px;right:0;bottom:0;z-index:40;width:min(540px,calc(100vw - 48px));overflow-y:auto;overscroll-behavior:contain;background:var(--soot-2);box-shadow:inset 1px 0 0 var(--line-2),-14px 0 0 -6px rgba(8,11,15,.55);
+  transform:translateX(104%);visibility:hidden;transition:transform 220ms var(--ease-out),visibility 0s linear 220ms}
+.kb-drawer.open{transform:none;visibility:visible;transition:transform 320ms var(--ease-drawer),visibility 0s}
+@media (prefers-reduced-motion:reduce){.kb-drawer,.kb-drawer.open{transition:visibility 0s}}
+.kb-dbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:12px 20px;background:var(--soot);box-shadow:inset 0 -1px 0 var(--line)}
+.kb-dpos{font:500 12px var(--mono);color:var(--muted);flex:1;text-align:center}
+.kb-dbar .kb-x{margin-left:6px}
+.kb-dbar .btn:disabled{opacity:.4;cursor:default}
+.kb-dbody{padding:20px 24px 40px}
+.kb-dpic{position:relative;display:flex;align-items:center;justify-content:center;height:190px;margin:0 0 18px;background:var(--bay-deep);box-shadow:inset 0 0 0 1px var(--line);
+  background-image:radial-gradient(var(--line) 1px,transparent 1.4px);background-size:14px 14px}
+.kb-dsvg{display:flex;height:132px}.kb-dsvg svg{height:100%;width:auto}
+.kb-dpic>.tag{position:absolute;left:14px;top:14px}
+.kb-dlayer{font:500 11.5px var(--mono);color:var(--muted)}
+.kb-drawer h3{font:400 26px/1.1 var(--disp);margin:6px 0 10px}
+.kb-drawer h3:focus{outline:none}
+.kb-drawer h3.retired{text-decoration:line-through;text-decoration-thickness:3px;text-decoration-color:var(--crit);color:var(--muted)}
+.kb-drawer .muted{margin:12px 0}
+.kb-cut{padding:10px 12px;background:var(--crit-wash);box-shadow:inset 0 0 0 1px var(--crit-line)}
+[data-shot] .kb-drawer{position:absolute;top:0;bottom:auto;max-height:none;overflow:visible}
+[data-theme=print] .kb-drawer{background:var(--soot);box-shadow:inset 0 0 0 2px var(--ink)}
+[data-theme=print] .kb-plate,[data-theme=print] .kb-plate.l{box-shadow:inset 0 0 0 2px #1A1611}
 
 /* ===================== HOW IT DECIDES ===================== */
 .line{background:var(--wall);box-shadow:inset 0 0 0 1px var(--line);position:relative;overflow:hidden}

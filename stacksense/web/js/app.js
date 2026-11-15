@@ -1378,81 +1378,172 @@ async function viewSens() {
 
 // ---------------------------------------------------------------- parts catalogue
 const GROUPS = [
+  { key: 'all', label: 'All', layers: null, sub: 'every layer', all: true },
   { key: 'visor', label: 'Visor', layers: ['frontend_web', 'frontend_mobile', 'frontend_desktop', 'frontend_game'], sub: 'frontend' },
   { key: 'spine', label: 'Spine', layers: ['backend'], sub: 'backend' },
   { key: 'core', label: 'Core', layers: ['database'], sub: 'database' },
   { key: 'cradle', label: 'Cradle', layers: ['hosting'], sub: 'hosting' },
   { key: 'bolt', label: 'Bolt-ons', layers: null, sub: 'supporting services' },
 ];
-const groupOf = (layer) => (GROUPS.find((g) => g.layers && g.layers.includes(layer)) || GROUPS[4]);
+const groupOf = (layer) => (GROUPS.find((g) => g.layers && g.layers.includes(layer)) || GROUPS.find((g) => g.key === 'bolt'));
+const inGroup = (g, r) => g.all || groupOf(r.layer) === g;
+/* per-part identity without vendor logos: a monogram from the record name, an accent picked from the
+   record id (FNV-1a, so the same id always gets the same plate), and a delivery-kind badge */
+const KB_ACC = ['weld', 'hazard', 'copper', 'info', 'steel', 'paper'];
+const kbAcc = (id) => { let x = 2166136261; for (const c of String(id)) { x ^= c.charCodeAt(0); x = Math.imul(x, 16777619) >>> 0; } return KB_ACC[x % KB_ACC.length]; };
+const KB_VENDOR = /^(amazon|aws|azure|google|cloud|microsoft|apache|the|for|and|on)$/i;
+function kbMono(name) {
+  const base = String(name || '').split(/\s*[(:,/+]\s*|\s+[–—]\s+/)[0].trim();
+  if (/^none\b/i.test(base)) return '—';
+  const toks = [];
+  for (const raw of base.split(/\s+/)) { if (/^\d/.test(raw)) break; const w = raw.replace(/\.(js|ts|io|net|dev)$/i, '').replace(/[^A-Za-z0-9]/g, ''); if (w) toks.push(w); }
+  let ws = toks.filter((w) => !KB_VENDOR.test(w)); if (!ws.length) ws = toks; if (!ws.length) return '··';
+  const caps = ws.filter((w) => /^[A-Z0-9]/.test(w)); if (caps.length) ws = caps;
+  if (ws.length > 1) return (ws[0][0] + ws[1][0]).toUpperCase();
+  const up = ws[0].match(/[A-Z]/g) || [];
+  return (up.length >= 2 ? up[0] + up[1] : ws[0].slice(0, 2)).toUpperCase();
+}
+const KB_SAAS_LAYERS = new Set(['auth', 'payments', 'observability', 'ml', 'other', 'search']);
+function kbKind(r) {
+  if (r.kind === 'none') return null;
+  if (r.kind === 'baas') return ['BaaS', 'baas'];
+  if (r.saas && r.self_hostable) return ['managed or self-host', 'both'];
+  if (r.self_hostable) return ['self-host', 'self'];
+  if (/saas/.test(r.kind) || KB_SAAS_LAYERS.has(r.layer)) return ['SaaS', 'saas'];
+  return ['managed', 'managed'];
+}
+const kbPlate = (r, big) => h('span', { class: 'kb-plate' + (big ? ' l' : ''), 'data-acc': kbAcc(r.id), 'aria-hidden': 'true' }, kbMono(r.name));
 async function viewKb() {
   const m = main();
+  $$('#kb-drawer').forEach((d) => d.remove());
   put(m, sheetHead('parts catalogue — knowledge base', 'kb ' + ((S.health || {}).kb_version || '')), h('p', { class: 'loading', id: 'kb-load', role: 'status' }, 'Loading the catalogue'));
   const kb = await ensureKb();
   await ensureSources();
   if (!kb) { m.replaceChildren(h('p', { class: 'err-text' }, 'The knowledge base could not be loaded.')); return; }
   $('#kb-load') && $('#kb-load').remove();
   const st = kb.stats || {};
-  const mpl = st.maintained_per_layer || {};
-  const count = (g) => (g.layers ? g.layers.reduce((a, l) => a + (mpl[l] || 0), 0) : Object.keys(mpl).filter((l) => !GROUPS.some((x) => x.layers && x.layers.includes(l))).reduce((a, l) => a + mpl[l], 0));
+  const byId = new Map(kb.records.map((r) => [r.id, r]));
+  /* tabs and shelf headers count the same thing: maintained ("active") records and every record */
+  const counts = (g) => { const rs = kb.records.filter((r) => inGroup(g, r)); return { act: rs.filter((r) => r.status === 'maintained').length, tot: rs.length }; };
+  const countTxt = (c) => nf.format(c.act) + ' active · ' + nf.format(c.tot) + ' total';
   const F = S.kbFilter;
   const cutFor = new Map();
   if (S.result) Object.values(traceLayers(S.result)).forEach((L) => (L.rejected || []).forEach((r) => cutFor.set(r.tech_id, r)));
-  const seg = h('div', { class: 'seg kbseg', role: 'group', 'aria-label': 'Layer' }, h('span', { class: 'thumb' }), GROUPS.map((g) => h('button', { type: 'button', 'aria-pressed': F.group === g.key ? 'true' : 'false', onclick: () => { F.group = g.key; S.kbSel = null; paint(); } }, g.label + ' ' + count(g))));
-  const q = h('input', { class: 'inp', id: 'kb-q', type: 'search', value: F.q, placeholder: 'search by name', oninput: (e) => { F.q = e.target.value; paint(); } });
-  const stSel = h('select', { class: 'inp', id: 'kb-status', onchange: (e) => { F.status = e.target.value; paint(); } }, h('option', { value: '' }, 'every status'), [...new Set(kb.records.map((r) => r.status))].sort().map((s) => h('option', { value: s, selected: F.status === s }, words(s))));
+  const setGroup = (key) => { if (F.group === key) return; F.group = key; shut(false); paint(true); };
+  const seg = h('div', { class: 'seg kbseg', role: 'group', 'aria-label': 'Layer',
+    onkeydown: (e) => {
+      if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const n = GROUPS.length, i = Math.max(0, GROUPS.findIndex((g) => g.key === F.group));
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : n - 1)) % n;
+      setGroup(GROUPS[j].key); $$('button', seg)[j].focus();
+    } },
+  h('span', { class: 'thumb' }), GROUPS.map((g) => { const c = counts(g); return h('button', { type: 'button', 'data-g': g.key, 'aria-pressed': F.group === g.key ? 'true' : 'false', tabindex: F.group === g.key ? '0' : '-1', 'aria-label': g.label + ', ' + countTxt(c), onclick: () => setGroup(g.key) }, h('span', { class: 'kb-tl' }, g.label), h('span', { class: 'kb-tc' }, countTxt(c))); }));
+  const q = h('input', { class: 'inp', id: 'kb-q', type: 'search', value: F.q, placeholder: 'search by name', oninput: (e) => { F.q = e.target.value; paint(false); } });
+  const stSel = h('select', { class: 'inp', id: 'kb-status', onchange: (e) => { F.status = e.target.value; paint(false); } }, h('option', { value: '' }, 'every status'), [...new Set(kb.records.map((r) => r.status))].sort().map((s) => h('option', { value: s, selected: F.status === s }, words(s))));
   const shelfH = h('h3', {}); const cards = h('div', { class: 'cards', id: 'shelf1' });
-  const detail = h('div', { id: 'kb-detail', 'aria-live': 'polite' });
   const retired = kb.records.filter((r) => r.status !== 'maintained');
   const ico = (r) => { const g = groupOf(r.layer); return g.key === 'bolt' ? FB.closeup('bolt', { kind: boltKind(r.layer, r.layer) }) : FB.closeup(g.key, { gauge: { low: 30, high: 60, budget: 45 } }); };
   const regs = (r) => ['india', 'eu', 'us'].filter((k) => (r.regions[k] || []).length).map((k) => (k === 'india' ? 'India' : k.toUpperCase()) + ' ' + r.regions[k].slice(0, 2).join(', ') + (r.regions[k].length > 2 ? ' …' : '')).join('; ') || (r.self_hostable ? 'wherever you host it' : 'none listed');
-  const card = (r) => {
+  const isRetired = (r) => r.status !== 'maintained' && r.status !== 'maintenance_only';
+  const kindBadge = (r) => { const k = kbKind(r); return k ? h('span', { class: 'kb-kind ' + k[1] }, k[0]) : null; };
+  const statusTag = (r) => { const cut = cutFor.get(r.id); return r.status !== 'maintained' ? [words(r.status), r.status === 'maintenance_only' ? 'hz' : 'steel'] : cut ? [cut.unverified ? 'unverified' : 'cut for ' + (S.result.scenario_id || 'this run'), cut.unverified ? 'hz' : 'crit'] : ['active', '']; };
+
+  /* ---- detail drawer: the shelf stays where it is; Esc or Close returns focus to the card ---- */
+  const drawer = h('aside', { class: 'kb-drawer', id: 'kb-drawer', role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'kb-dt', 'aria-hidden': 'true' });
+  document.body.append(drawer);
+  let nav = [], navShelf = cards;
+  const cardOf = (id) => id && (navShelf.querySelector('[data-id="' + CSS.escape(id) + '"]') || m.querySelector('.box2[data-id="' + CSS.escape(id) + '"]'));
+  const mark = () => $$('.box2', m).forEach((b) => { const on = b.dataset.id === S.kbSel; b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.setAttribute('aria-expanded', on ? 'true' : 'false'); });
+  const shut = (refocus) => {
+    const id = S.kbSel; S.kbSel = null;
+    drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); drawer.inert = true; mark();
+    if (refocus) { const c = cardOf(id); if (c) c.focus(); }
+  };
+  const step = (d) => {
+    const i = nav.indexOf(S.kbSel); const id = nav[i + d]; if (i < 0 || !id) return;
+    show(byId.get(id), nav, navShelf);
+    const c = cardOf(id); if (c) c.scrollIntoView({ block: 'nearest' });
+    const b = $(d < 0 ? '.kb-prev' : '.kb-next', drawer); (b && !b.disabled ? b : $('#kb-dt', drawer)).focus();
+  };
+  const fill = (r) => {
+    const rep = r.replaced_by && byId.get(r.replaced_by);
+    const i = nav.indexOf(r.id), prev = byId.get(nav[i - 1]), next = byId.get(nav[i + 1]);
+    const t = statusTag(r);
+    drawer.replaceChildren(
+      h('div', { class: 'kb-dbar' },
+        h('button', { class: 'btn g s kb-prev', type: 'button', disabled: i < 1, 'aria-label': prev ? 'Previous part: ' + prev.name : 'No previous part', onclick: () => step(-1) }, '← Prev'),
+        h('span', { class: 'kb-dpos' }, i < 0 ? 'off this shelf' : (i + 1) + ' of ' + nav.length),
+        h('button', { class: 'btn g s kb-next', type: 'button', disabled: i < 0 || !next, 'aria-label': next ? 'Next part: ' + next.name : 'No next part', onclick: () => step(1) }, 'Next →'),
+        h('button', { class: 'btn g s kb-x', type: 'button', 'aria-label': 'Close details (Esc)', onclick: () => shut(true) }, 'Close')),
+      h('div', { class: 'kb-dbody' },
+        h('div', { class: 'kb-dpic' + (isRetired(r) ? ' retired' : '') }, h('span', { class: 'kb-dsvg', html: ico(r) }), kbPlate(r, true), h('span', { class: 'tag ' + t[1] }, t[0])),
+        h('span', { class: 'kb-dlayer' }, groupOf(r.layer).label + ' · ' + words(r.layer)),
+        h('h3', { id: 'kb-dt', tabindex: '-1', class: isRetired(r) ? 'retired' : '' }, r.name),
+        h('div', { class: 'kb-meta' }, kindBadge(r), h('span', {}, r.kind.replace(/_/g, ' '))),
+        h('p', { class: 'muted' }, 'status ' + words(r.status) + (r.supported_until ? ' · supported until ' + r.supported_until : '') + ' · ops burden ' + r.ops_burden + '/5 · licence ' + r.licence),
+        rep ? h('p', {}, 'Replacement: ', h('button', { class: 'linkbtn', type: 'button', onclick: () => { const ni = nav.indexOf(rep.id); show(rep, ni < 0 ? [rep.id] : nav, navShelf); $('#kb-dt', drawer).focus(); } }, rep.name)) : null,
+        cutFor.get(r.id) ? h('p', { class: 'kb-cut' }, h('b', {}, 'Why it was cut: '), cutFor.get(r.id).reason_text) : null,
+        h('div', { class: 'sect' }, 'strengths'), h('ul', { class: 'tlist' }, (r.strengths || []).map((x) => h('li', {}, x))),
+        h('div', { class: 'sect' }, 'trade-offs'), h('ul', { class: 'tlist' }, (r.tradeoffs || []).map((x) => h('li', {}, x))),
+        h('div', { class: 'sect' }, 'facts the filters check'), h('ul', { class: 'tlist' }, (r.facts || []).map((f) => h('li', {}, f.text, ' ', h('span', { class: 'chip ghost' }, 'confidence ' + f.confidence)))),
+        h('div', { class: 'sect' }, 'regions with data centres'), h('p', { style: 'margin:0' }, regs(r)),
+        h('div', { class: 'sect' }, 'compliance attestations'), h('div', { class: 'chips' }, Object.entries(r.attest || {}).map(([k, v]) => h('span', { class: 'chip' + (v === 'yes' ? '' : ' ghost') }, k + ': ' + v))),
+        h('div', { class: 'sect' }, 'sources'), h('ul', { class: 'srcs' }, (r.sources || []).map((k) => { const s = S.sources.get(k); return h('li', {}, s ? [h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title), h('span', { class: 'muted' }, ' · accessed ' + s.accessed)] : k); }))));
+    drawer.scrollTop = 0;
+  };
+  const show = (r, list, shelf) => {
+    S.kbSel = r.id; nav = list; navShelf = shelf || cards;
+    fill(r); mark();
+    drawer.inert = false; drawer.setAttribute('aria-hidden', 'false'); drawer.classList.add('open');
+  };
+  const onKey = (e) => {
+    if (!drawer.isConnected) { document.removeEventListener('keydown', onKey); return; }
+    if (e.key === 'Escape' && drawer.classList.contains('open')) { e.preventDefault(); shut(true); }
+  };
+  document.addEventListener('keydown', onKey);
+  addEventListener('hashchange', () => drawer.remove(), { once: true });
+
+  const card = (r, i) => {
     const cut = cutFor.get(r.id);
-    const tag = r.status !== 'maintained' ? [words(r.status), r.status === 'maintenance_only' ? 'hz' : 'steel'] : cut ? [cut.unverified ? 'unverified' : 'cut for ' + (S.result.scenario_id || 'this run'), cut.unverified ? 'hz' : 'crit'] : ['active', ''];
+    const tag = statusTag(r);
     const att = Object.entries(r.attest || {}).filter(([, v]) => v === 'yes' || v === 'addon').map(([k, v]) => k.replace(/_/g, ' ').toUpperCase() + (v === 'addon' ? ' (add-on)' : ''));
     const src = (r.sources || [])[0] && S.sources.get(r.sources[0]);
     const dl = r.status !== 'maintained'
-      ? [['status', words(r.status) + (r.supported_until ? ' · until ' + r.supported_until : '')], ['use instead', (kb.records.find((x) => x.id === r.replaced_by) || {}).name || r.replaced_by || '—']]
+      ? [['status', words(r.status) + (r.supported_until ? ' · until ' + r.supported_until : '')], ['use instead', (byId.get(r.replaced_by) || {}).name || r.replaced_by || '—']]
       : [['regions', regs(r)], cut ? ['why cut', cut.reason_text] : ['attests', att.join(', ') || 'none listed'], ['self-host', r.self_hostable ? 'yes' : 'no'], r.languages && r.languages.length ? ['languages', r.languages.slice(0, 3).join(', ')] : null].filter(Boolean);
-    const open = () => { S.kbSel = r.id; showRec(r); $$('.box2', m).forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === r.id ? 'true' : 'false')); };
-    return h('article', { class: 'box2' + (r.status !== 'maintained' && r.status !== 'maintenance_only' ? ' retired' : '') + (cut ? ' cut' : ''), tabindex: '0', role: 'button', 'data-id': r.id, 'aria-pressed': S.kbSel === r.id ? 'true' : 'false', 'aria-label': r.name + ', ' + tag[0] + '. Open details', onclick: open, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } },
-      h('div', { class: 'ico' }, h('span', { html: ico(r) }), h('span', { class: 'tag ' + tag[1] }, tag[0])),
-      h('h4', {}, r.name), h('dl', {}, dl.map(([a, b]) => [h('dt', {}, a), h('dd', {}, b)])),
+    const open = (e) => { const shelf = e.currentTarget.closest('.cards') || cards; show(r, $$('.box2', shelf).map((b) => b.dataset.id), shelf); $('#kb-dt', drawer).focus({ preventScroll: true }); };
+    const k = kbKind(r);
+    return h('article', { class: 'box2' + (isRetired(r) ? ' retired' : '') + (cut ? ' cut' : ''), style: '--i:' + Math.min(i, 16), tabindex: '0', role: 'button', 'data-id': r.id, 'aria-controls': 'kb-drawer', 'aria-pressed': S.kbSel === r.id ? 'true' : 'false', 'aria-label': r.name + ', ' + tag[0] + (k ? ', ' + k[0] : '') + '. Open details', onclick: open, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } } },
+      h('div', { class: 'ico' }, h('span', { class: 'kb-pic' }, h('span', { html: ico(r) }), kbPlate(r)), h('span', { class: 'tag ' + tag[1] }, tag[0])),
+      h('h4', {}, r.name), h('div', { class: 'kb-meta' }, kindBadge(r)), h('dl', {}, dl.map(([a, b]) => [h('dt', {}, a), h('dd', {}, b)])),
       src ? h('span', { class: 'src' }, src.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48)) : null);
   };
-  const showRec = (r) => {
-    const rep = r.replaced_by && kb.records.find((x) => x.id === r.replaced_by);
-    detail.replaceChildren(h('div', { class: 'panel pad kbd' },
-      h('div', { class: 'dname' }, h('div', {}, h('span', { class: 'tag' }, groupOf(r.layer).label + ' · ' + words(r.layer)), h('h3', {}, r.name)), h('button', { class: 'btn g s', type: 'button', onclick: () => { S.kbSel = null; detail.replaceChildren(); } }, 'Close')),
-      h('p', { class: 'muted' }, r.kind + ' · status ' + words(r.status) + (r.supported_until ? ' · supported until ' + r.supported_until : '') + ' · ops burden ' + r.ops_burden + '/5 · licence ' + r.licence),
-      rep ? h('p', {}, 'Replacement: ', h('button', { class: 'linkbtn', type: 'button', onclick: () => showRec(rep) }, rep.name)) : null,
-      h('div', { class: 'cols2' },
-        h('div', {}, h('div', { class: 'sect' }, 'strengths'), h('ul', { class: 'tlist' }, (r.strengths || []).map((x) => h('li', {}, x))), h('div', { class: 'sect' }, 'trade-offs'), h('ul', { class: 'tlist' }, (r.tradeoffs || []).map((x) => h('li', {}, x)))),
-        h('div', {}, h('div', { class: 'sect' }, 'facts the filters check'), h('ul', { class: 'tlist' }, (r.facts || []).map((f) => h('li', {}, f.text, ' ', h('span', { class: 'chip ghost' }, 'confidence ' + f.confidence)))),
-          h('div', { class: 'sect' }, 'regions with data centres'), h('p', { style: 'margin:0' }, regs(r)),
-          h('div', { class: 'sect' }, 'compliance attestations'), h('div', { class: 'chips' }, Object.entries(r.attest || {}).map(([k, v]) => h('span', { class: 'chip' + (v === 'yes' ? '' : ' ghost') }, k + ': ' + v))))),
-      h('div', { class: 'sect' }, 'sources'), h('ul', { class: 'srcs' }, (r.sources || []).map((k) => { const s = S.sources.get(k); return h('li', {}, s ? [h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.title), h('span', { class: 'muted' }, ' · accessed ' + s.accessed)] : k); }))));
-    detail.scrollIntoView({ block: 'nearest' });
-  };
-  const paint = () => {
-    $$('button', seg).forEach((b, i) => b.setAttribute('aria-pressed', GROUPS[i].key === F.group ? 'true' : 'false'));
+  const gi = (r) => GROUPS.indexOf(groupOf(r.layer));
+  const paint = (anim) => {
+    $$('button', seg).forEach((b, i) => { const on = GROUPS[i].key === F.group; b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
     requestAnimationFrame(() => placeThumb(seg));
-    const g = GROUPS.find((x) => x.key === F.group) || GROUPS[1];
+    const g = GROUPS.find((x) => x.key === F.group) || GROUPS.find((x) => x.key === 'spine');
     const ql = F.q.toLowerCase();
-    const recs = kb.records.filter((r) => groupOf(r.layer) === g && (!F.status || r.status === F.status) && (!ql || (r.name + ' ' + r.id).toLowerCase().includes(ql)))
-      .sort((a, b) => (a.status === 'maintained' ? 0 : 1) - (b.status === 'maintained' ? 0 : 1) || (cutFor.has(b.id) ? 1 : 0) - (cutFor.has(a.id) ? 1 : 0) || a.name.localeCompare(b.name));
-    const total = kb.records.filter((r) => groupOf(r.layer) === g).length;
-    shelfH.replaceChildren(g.label + ' shelf ', h('span', {}, g.sub + ' · ' + recs.length + ' of ' + total + ' shown' + (cutFor.size ? ' · cut for ' + (S.result.scenario_id || 'your run') + ' in red' : '')));
-    cards.replaceChildren(...recs.map(card));
+    const recs = kb.records.filter((r) => inGroup(g, r) && (!F.status || r.status === F.status) && (!ql || (r.name + ' ' + r.id).toLowerCase().includes(ql)))
+      .sort((a, b) => (g.all ? gi(a) - gi(b) : 0) || (a.status === 'maintained' ? 0 : 1) - (b.status === 'maintained' ? 0 : 1) || (cutFor.has(b.id) ? 1 : 0) - (cutFor.has(a.id) ? 1 : 0) || a.name.localeCompare(b.name));
+    const c = counts(g);
+    shelfH.replaceChildren(g.label + ' shelf ', h('span', {}, g.sub + ' · ' + countTxt(c) + (recs.length !== c.tot ? ' · ' + nf.format(recs.length) + ' shown' : '') + (cutFor.size ? ' · cut for ' + (S.result.scenario_id || 'your run') + ' in red' : '')));
+    cards.replaceChildren(...(recs.length ? recs.map(card) : [h('p', { class: 'kb-empty' }, 'No part on this shelf matches “' + F.q + '”' + (F.status ? ' with status ' + words(F.status) : '') + '.')]));
+    if (anim && !SHOT()) { cards.classList.remove('kb-in'); void cards.offsetWidth; cards.classList.add('kb-in'); }
+    if (S.kbSel && navShelf === cards) { nav = $$('.box2', cards).map((b) => b.dataset.id); if (drawer.classList.contains('open')) fill(byId.get(S.kbSel)); }
+    mark();
   };
-  put(m, hd2('kb-h', 'Parts catalogue', 'Every part the bay can fit, the facts it checks and where each fact comes from.', nf.format(st.records) + ' parts, ' + nf.format(st.sources_cited_by_records) + ' cited sources, kb ' + st.kb_version + '.', seg),
+  const rc = { act: 0, tot: retired.length };
+  put(m, hd2('kb-h', 'Parts catalogue', 'Every part the bay can fit, the facts it checks and where each fact comes from.', nf.format(st.records) + ' parts, ' + nf.format(st.sources_cited_by_records) + ' cited sources, kb ' + st.kb_version + '.'),
+    h('div', { class: 'kb-bar' }, seg),
     h('div', { class: 'kbtools' }, h('label', { for: 'kb-q', class: 'k' }, 'search'), q, h('label', { for: 'kb-status', class: 'k' }, 'status'), stSel),
-    detail,
     h('div', { class: 'shelf' }, shelfH, cards, h('div', { class: 'board' })),
-    h('div', { class: 'shelf' }, h('h3', {}, 'Retired or closing ', h('span', {}, retired.length + ' across all layers · the bay warns before fitting these')), h('div', { class: 'cards', id: 'shelf2' }, retired.map(card)), h('div', { class: 'board' })),
+    h('div', { class: 'shelf' }, h('h3', {}, 'Retired or closing ', h('span', {}, countTxt(rc) + ' · across all layers · the bay warns before fitting these')), h('div', { class: 'cards', id: 'shelf2' }, retired.map(card)), h('div', { class: 'board' })),
     sheetFoot('Parts catalogue · cited facts'));
-  paint();
-  if (S.kbSel) { const r = kb.records.find((x) => x.id === S.kbSel); if (r) showRec(r); }
+  drawer.inert = true;
+  paint(false);
+  if (S.kbSel) { const r = byId.get(S.kbSel); if (r) show(r, nav.length ? nav : $$('.box2', cards).map((b) => b.dataset.id), cards); else S.kbSel = null; }
 }
 function placeThumb(seg) { const on = seg.querySelector('[aria-pressed=true]') || seg.querySelector('button'); const th = seg.querySelector('.thumb'); if (!on || !on.offsetWidth || !th) return; th.style.transform = `translateX(${on.offsetLeft}px) scaleX(${on.offsetWidth / 100})`; }
 addEventListener('resize', () => $$('.seg').forEach(placeThumb));
