@@ -1074,7 +1074,7 @@ function drawExploded(res, xp) {
   xp.innerHTML = stageSVG(900, 780, miniBay(900, 780, { lamp: 450, floor: 700 }) + nest(bot, RXo, RYo, 260, 680, '70 -10 260 680').replace('<svg class="bot', '<svg data-click class="bot') +
     PARTS.map(xcallout).join(''), 'Exploded view of the fitted body for ' + scenarioTitle() + '.');
   $$('.xco', xp).forEach((b) => { b.onclick = () => pick(b.dataset.p); });
-  $$('#resbot .pt', xp).forEach((g) => { const l = LAYER_OF[g.dataset.part]; g.onclick = () => pick(l); g.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(l); } }; });
+  $$('svg.bot .pt', xp).forEach((g) => { const l = LAYER_OF[g.dataset.part]; g.onclick = () => pick(l); g.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(l); } }; });
 }
 function pick(sel) {
   if (sel === S.sel) return;
@@ -1082,7 +1082,7 @@ function pick(sel) {
   $$('#ptabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.p === sel ? 'true' : 'false'));
   $$('#xp .xco').forEach((b) => b.setAttribute('aria-pressed', b.dataset.p === sel ? 'true' : 'false'));
   $$('#bolts .bc').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sel === sel ? 'true' : 'false'));
-  $$('#resbot .pt').forEach((g) => g.classList.toggle('sel', LAYER_OF[g.dataset.part] === sel));
+  $$('#xp svg.bot .pt').forEach((g) => g.classList.toggle('sel', LAYER_OF[g.dataset.part] === sel));
   const d = $('#detail'); if (!d) return;
   if (reduce()) { renderDetail(); return; }
   d.classList.add('swap'); setTimeout(() => { renderDetail(); d.classList.remove('swap'); }, 150);
