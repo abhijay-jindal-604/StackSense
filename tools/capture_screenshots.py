@@ -137,7 +137,7 @@ def main() -> None:
             ("S14", "&scenario=P4&tab=cost" + R, dict(warnings, max_h=1100)),
             ("S15", "&scenario=P3" + R, overview),
             ("S16", "&scenario=P5" + R, overview),
-            ("S17", "&scenario=P6&stratum=frontend" + R, dict(top="#ptabs", bottom="#detail .tlist", left=".detail-wrap", max_h=1500)),
+            ("S17", "&scenario=P6&stratum=frontend" + R, overview),
             ("S18", "&scenario=P3&stratum=database" + R, dict(top="#detail .bars", bottom="#detail table.alt", left=".detail-wrap", max_h=900)),
             ("S19", "&scenario=P2&run=1#/whatif", dict(top=".sheet-head", bottom=".sheet-foot", before=whatif_refit, max_h=1500)),
             ("S20", "&scenario=H21_empty_object" + R, dict(top=".sheet-head", bottom=".sheet-foot", max_h=1250)),
