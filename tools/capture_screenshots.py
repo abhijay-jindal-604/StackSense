@@ -133,7 +133,7 @@ def main() -> None:
             ("S10", "&scenario=P1" + R, overview),
             ("S11", "&scenario=P2&stratum=backend" + R, detail),
             ("S12", "&scenario=P2&tab=warnings" + R, warnings),
-            ("S13", "&scenario=P4&stratum=database" + R, detail),
+            ("S13", "&scenario=P4&stratum=database" + R, dict(detail, bottom="#detail .chips")),
             ("S14", "&scenario=P4&tab=cost" + R, dict(warnings, max_h=1100)),
             ("S15", "&scenario=P3" + R, overview),
             ("S16", "&scenario=P5" + R, overview),
