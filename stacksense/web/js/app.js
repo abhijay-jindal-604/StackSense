@@ -1624,102 +1624,97 @@ addEventListener('resize', () => $$('.seg').forEach(placeThumb));
 // ---------------------------------------------------------------- how it decides
 function viewAbout() {
   const m = main(); const hd = S.health || {};
-  const res = S.result && S.result.stack ? S.result : S.demo && S.demo.result;
-  const sc = S.result && S.result.stack ? S.scenario : S.demo && S.demo.scenario;
+  const mine = !!(S.result && S.result.stack);
+  const res = mine ? S.result : S.demo && S.demo.result;
+  const sc = mine ? S.scenario : S.demo && S.demo.scenario;
+  const tr = res && res.decision_trace;
   const be = res && res.stack.backend;
-  const sco = res ? partScore(res, 'backend') : null;
   const tt = be && traceTop(res, idsOf(be)[0]);
-  const cut = tt && (tt.L.rejected || [])[0];
-  const drv = ((be && be.driven_by) || []).map((p) => { const v = getp(sc || {}, p); if (v === undefined) return null; const t = Array.isArray(v) ? v.join(', ') : String(v); return /^[\d.]+$|^(true|false)$/.test(t) ? p.split('.').pop().split('_')[0] + ' ' + t : t; }).filter(Boolean).slice(0, 3);
-  const W = 1200, H = 380, BY = 290;
-  const crate = (x, y, t, c) => `<g transform="translate(${x} ${y})"><rect x="-30" y="-36" width="60" height="36" fill="${c || C.s1}" stroke="#0B0F14" stroke-width="2.6"/><path d="M-30 -24 H30" stroke="#0B0F14" stroke-width="1.6"/><text x="0" y="-8" text-anchor="middle" ${MONO} font-size="10.5" font-weight="500" fill="#11161D">${esc(String(t).slice(0, 9))}</text></g>`;
-  const rollers = [...Array(30)].map((_, i) => `<circle cx="${30 + i * 39}" cy="${BY + 12}" r="9" fill="${C.s3}" stroke="#0B0F14" stroke-width="2"/><circle cx="${30 + i * 39}" cy="${BY + 12}" r="2.5" fill="${C.sh}"/>`).join('');
-  const belt = `<rect x="10" y="${BY}" width="${W - 20}" height="24" fill="${C.ink}"/>${rollers}<rect x="10" y="${BY - 6}" width="${W - 20}" height="8" fill="${C.s2}" stroke="#0B0F14" stroke-width="2"/>
-    ${[...Array(12)].map((_, i) => `<rect x="${40 + i * 98}" y="${BY + 24}" width="10" height="${H - BY - 24}" fill="var(--girder)"/>`).join('')}<rect x="10" y="${BY + 40}" width="${W - 20}" height="10" fill="url(#fb-hz)" opacity=".9"/>`;
-  const hopper = `<path d="M40 70 L200 70 L160 170 L80 170 Z" fill="${C.s2}" stroke="#0B0F14" stroke-width="3"/><path d="M40 70 L200 70 L196 80 L44 80 Z" fill="url(#fb-hz)"/><rect x="100" y="170" width="40" height="60" fill="${C.s3}" stroke="#0B0F14" stroke-width="3"/>
-    ${crate(84, 112, drv[0] || 'answer')}${crate(150, 124, drv[1] || 'answer')}${crate(118, 96, drv[2] || 'answer')}`;
-  const gate = `<g transform="translate(360 0)"><rect x="-70" y="80" width="18" height="${BY - 80}" fill="${C.s3}" stroke="#0B0F14" stroke-width="3"/><rect x="52" y="80" width="18" height="${BY - 80}" fill="${C.s3}" stroke="#0B0F14" stroke-width="3"/>
-    <rect x="-70" y="70" width="140" height="26" fill="url(#fb-hz)" stroke="#0B0F14" stroke-width="3"/><g id="ln-bars">${[-36, -12, 12, 36].map((x) => `<path d="M${x} 96 V${BY - 60}" stroke="${C.s1}" stroke-width="5"/><path d="M${x} 96 V${BY - 60}" stroke="#0B0F14" stroke-width="1.2"/>`).join('')}</g>
-    ${cut ? `<path d="M70 ${BY - 10} Q120 ${BY + 10} 140 ${BY + 70}" fill="none" stroke="var(--crit)" stroke-width="3" stroke-dasharray="7 5"/>${crate(160, BY + 62, cut.name, 'var(--crit)')}` : ''}</g>`;
-  const s = sco ? sco.total : 0;
-  const scale = `<g transform="translate(600 0)"><g id="ln-plat"><rect x="-80" y="${BY - 30}" width="160" height="24" fill="${C.s2}" stroke="#0B0F14" stroke-width="3"/></g><rect x="-10" y="150" width="20" height="${BY - 180}" fill="${C.s3}" stroke="#0B0F14" stroke-width="3"/>
-    <g id="ln-gauge" transform="translate(0 120) scale(1.7)">${FB.gauge({ low: 0, high: Math.max(s, 1), budget: s }, {})}</g>${sco ? `<text x="0" y="216" text-anchor="middle" style="font-family:var(--disp)" font-size="22" fill="var(--ink)" stroke="var(--wall)" stroke-width="6" paint-order="stroke" stroke-linejoin="round">${s}</text>` : ''}</g>`;
-  const assembler = `<g transform="translate(830 0)"><rect x="-6" y="30" width="20" height="90" fill="${C.s3}" stroke="#0B0F14" stroke-width="3"/><g id="ln-arm"><path d="M4 120 L-40 190 L-14 ${BY - 60}" fill="none" stroke="#0B0F14" stroke-width="16" stroke-linejoin="round"/><path d="M4 120 L-40 190 L-14 ${BY - 60}" fill="none" stroke="${C.s1}" stroke-width="10" stroke-linejoin="round"/>
-    <circle cx="4" cy="120" r="12" fill="${C.mu}" stroke="#0B0F14" stroke-width="2.6"/><circle cx="-40" cy="190" r="12" fill="${C.mu}" stroke="#0B0F14" stroke-width="2.6"/>
-    <g transform="translate(-14 ${BY - 70}) scale(.32)"><use href="#fbp-visor" transform="translate(-200 -108)"/></g></g></g>`;
-  const printer = `<g transform="translate(1060 0)"><rect x="-70" y="140" width="140" height="${BY - 150}" fill="${C.s2}" stroke="#0B0F14" stroke-width="3"/><rect x="-54" y="160" width="108" height="34" fill="${C.ink}"/><circle cx="-36" cy="177" r="5" fill="${C.or}"/>
-    <g id="ln-tag"><path d="M-20 ${BY - 60} h96 l10 22 h-96 z" fill="${C.or}" stroke="#0B0F14" stroke-width="2.4"/><text x="34" y="${BY - 44}" text-anchor="middle" ${MONO} font-size="11" font-weight="500" fill="#11161D">driven_by</text></g></g>`;
-  const travel = `<g class="crate" id="crate">${crate(80, BY - 6, 'answer')}</g>`;
-  const label = 'The bay as a conveyor: answers drop from a hopper' + (cut ? ', pass a hazard gate that cuts ' + cut.name : ', pass the hard-filter gate') + (sco ? ', are weighed on a gauge at ' + s : ', are weighed') + ', assembled, and leave with a driven_by tag.';
-  const line = h('div', { class: 'line', id: 'line', html: stageSVG(W, H, `<rect width="${W}" height="${H}" fill="var(--wall)"/>${[0, 1, 2, 3].map((i) => `<path d="M${i * 320} 20 L${i * 320 + 300} ${BY - 20} M${i * 320 + 300} 20 L${i * 320} ${BY - 20}" stroke="var(--girder)" stroke-width="14" opacity=".7"/>`).join('')}${belt}${hopper}${gate}${scale}${assembler}${printer}${travel}<g class="fx"></g>`, label) });
-  const runBtn = h('button', { class: 'btn g', id: 'runline', type: 'button' }, 'Run one answer down the line ', h('span', { class: 'arr' }, '→'));
-  const stations = h('div', { class: 'stations' },
-    h('div', {}, h('span', { class: 'tag steel' }, 'in'), h('b', {}, 'Your answers'), h('p', {}, 'The §3 schema, checked field by field. Wrong types stop here.')),
-    h('div', {}, h('span', { class: 'tag crit' }, 'cut'), h('b', {}, 'Hard filters'), h('p', {}, 'Residency, compliance, deployment and an explicit cloud. Unknown facts fail closed.')),
-    h('div', {}, h('span', { class: 'tag' }, 'score'), h('b', {}, 'Every survivor'), h('p', {}, '21 score lines per part: your priorities, skill fit, requirement fit, budget, lock-in and 16 more, summed.')),
-    h('div', {}, h('span', { class: 'tag' }, 'fit'), h('b', {}, 'Combine'), h('p', {}, 'Parts that work together. The budget is checked against the band, never passed silently.')),
-    h('div', {}, h('span', { class: 'tag info' }, 'tag'), h('b', {}, 'Explain'), h('p', {}, 'Reasons are built from the score lines and the filter cuts, not written per scenario.')));
-  const tr = S.result && S.result.decision_trace;
+  const L = traceLayers(res);
+  /* the run's own numbers, read from the trace; nothing here is written per scenario */
+  const leaves = (o) => (isObj(o) ? Object.values(o).reduce((n, v) => n + leaves(v), 0) : o === undefined ? 0 : 1);
+  const nAns = sc ? leaves(sc) : 0;
+  const nErr = res ? (res.validation_errors || []).length : 0;
+  const rejAll = Object.keys(L).flatMap((k) => (L[k].rejected || []).map((r) => Object.assign({ lk: k }, r)));
+  const rejShown = tt ? [...(tt.L.rejected || []), ...rejAll.filter((r) => r.lk !== tt.layer)] : rejAll;
+  const tops = tt ? (tt.L.top || []) : [];
+  const tot = (i) => (tops[i] ? tops[i].total : 0);
+  const contrib = tt ? [...tt.t.contributions].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3) : [];
+  const comb = tr && tr.combinations;
+  const bv = res && res.budget_verdict, cost = res && res.estimated_monthly_cost_usd;
+  const drv = (be && be.driven_by) || [];
+  const flt = (r) => r.name + ' · ' + words(r.code || r.rule || 'cut');
+  const data = {
+    answers: nAns, schemaErrors: nErr, rejected: rejAll.length,
+    scale: tops.length >= 3 ? [[tot(0), tot(1)], [tot(1), tot(2)]] : tops.length === 2 ? [[tot(0), tot(1)], [tot(1), tot(1)]] : null,
+    gauge: res ? gaugeOf(res) : null,
+  };
+  const label = 'The sorting tower: ' + (res ? nAns + ' answers drop through the schema sieve; the laser gate cuts ' + rejAll.length + ' parts into the reject chute; '
+    + (tt ? tt.t.name + ' outweighs ' + (tops[1] ? tops[1].name : 'the rest') + ' on the scales; ' : '') + 'the arm assembles the stack and the printer tags it.' : 'answers, hard filters, scoring, assembly and explanation, one level each.');
+  const rows = [
+    { k: 'in', t: 'steel', title: 'Hopper and sieve', what: 'Your answers drop in and are checked against the §3 schema, field by field. Wrong types stop here.',
+      fact: res ? nAns + ' answers in · ' + (nErr ? nErr + ' schema error' + (nErr > 1 ? 's' : '') : 'no schema errors') : null,
+      chips: drv.slice(0, 3).map((p) => h('code', { class: 'chip ghost' }, p)) },
+    { k: 'cut', t: 'crit', title: 'Laser gate', what: 'Hard filters: residency, compliance, deployment model and an explicit cloud. Unknown vendor facts fail closed and drop down the chute.',
+      fact: res ? rejAll.length + ' parts cut across ' + Object.keys(L).length + ' layers' : null,
+      chips: rejShown.slice(0, 2).map((r) => h('code', { class: 'chip crit', title: r.reason_text || '' }, flt(r))).concat(rejAll.length > 2 ? [h('span', { class: 'k' }, '+' + (rejAll.length - 2) + ' more')] : []) },
+    { k: 'score', t: '', title: 'Balance scales', what: 'Every survivor is weighed on 21 score lines: priorities, skill fit, requirement fit, budget, lock-in and more, summed.',
+      fact: tt ? tt.t.name + ' ' + tt.t.total + (tops[1] ? ' vs ' + tops[1].name + ' ' + tops[1].total : '') + ' · ' + tt.L.candidates + ' ' + words(tt.layer) + ' candidates' : null,
+      chips: contrib.map((c) => h('code', { class: 'chip ghost' }, c.key + ' ' + sgn(c.value))) },
+    { k: 'fit', t: '', title: 'Robot arm', what: 'The best parts are combined into stacks that work together, then the cost band is checked against your budget, never passed silently.',
+      fact: res ? (comb ? nf.format(comb.considered) + ' combinations tried, ' + nf.format(comb.passed) + ' fit' : 'parts combined') + (bv && cost ? ' · USD ' + band(cost) + '/mo vs ' + usd(bv.budget_usd) + ': ' + words(bv.verdict) : '') : null,
+      chips: [] },
+    { k: 'tag', t: 'info', title: 'Tag printer', what: 'Each part leaves with a driven_by tag. Reasons are built from the score lines and the filter cuts, not written per scenario.',
+      fact: be ? be.choice + ' is tagged with ' + drv.length + ' answers' : null,
+      chips: drv.slice(0, 2).map((p) => h('code', { class: 'chip' }, p)).concat(drv.length > 2 ? [h('span', { class: 'k' }, '+' + (drv.length - 2) + ' more')] : []) },
+  ];
+  const art = h('div', { class: 'tw-art', html: Tower.svg(data, label) + '<div class="grain"></div>' });
+  const tower = h('div', { class: 'tower', id: 'tower' }, art,
+    rows.map((r, i) => h('div', { class: 'tw-row', style: 'grid-row:' + (i + 1), 'data-i': String(i) },
+      h('span', { class: 'tw-lead', 'aria-hidden': 'true' }),
+      h('section', { class: 'tw-card c' + i, 'aria-label': 'Level ' + (i + 1) + ': ' + r.title },
+        h('div', { class: 'tw-bar' }, h('span', { class: 'tag ' + r.t }, r.k), h('b', {}, r.title)),
+        h('div', { class: 'tw-body' }, h('p', {}, r.what), r.fact ? h('p', { class: 'tw-fact' }, r.fact) : null,
+          r.chips.length ? h('div', { class: 'chips' }, r.chips) : null)))));
+  const runBtn = h('button', { class: 'btn g', id: 'runline', type: 'button' }, 'Replay the tower ', h('span', { class: 'arr' }, '↓'));
+  const src = h('p', { class: 'k tw-src' }, res ? 'Trace from ' + (mine ? 'your last run' + (res.scenario_id ? ' (' + res.scenario_id + ')' : '') : 'a demo run of public scenario P2') + '. Names and numbers are read from its decision_trace.' : 'Run a scenario to fill the tower with a real trace.');
   const seenKeys = tr && tr.layers ? [...new Set(Object.values(tr.layers).flatMap((l) => (l.top || []).flatMap((t) => t.contributions.map((c) => c.key))))].sort() : [];
   put(m, sheetHead('how it decides — pipeline', 'deterministic'),
     hd2('ab-h', 'How the bay decides', 'No model picks the parts.', 'The same answers always give the same body, down to the byte.', runBtn),
-    line, stations,
-    h('div', { class: 'cols', style: 'grid-template-columns:1fr 1fr;margin-top:20px' },
+    src, tower,
+    h('div', { class: 'cols tw-cols' },
       h('div', { class: 'panel pad' }, h('div', { class: 'sect', style: 'margin-top:0' }, 'score lines and their range · weights from scoring.py'),
-        h('table', {}, h('tbody', {}, SCORE_RANGES.map(([a, b]) => h('tr', {}, h('td', {}, a), h('td', { class: 'mono', style: 'text-align:right;white-space:nowrap' }, b))),
+        h('table', { class: 'tw-tab' }, h('tbody', {}, SCORE_RANGES.map(([a, b]) => h('tr', {}, h('td', {}, a), h('td', { class: 'mono' }, b))),
           h('tr', {}, h('td', { colspan: '2', class: 'muted' }, '14 more lines: ops, scale, reuse, availability, latency, timeline, traffic, workload, geo, data, GDPR, growth, device, security. 21 in all.')))),
-        seenKeys.length ? h('div', {}, h('div', { class: 'sect' }, 'score lines used in your last run (' + seenKeys.length + ')'), h('div', { class: 'chips' }, seenKeys.map((k) => h('code', { class: 'chip ghost' }, k))),
+        seenKeys.length ? h('div', {}, h('div', { class: 'sect' }, 'score lines used in this run (' + seenKeys.length + ')'), h('div', { class: 'chips' }, seenKeys.map((k) => h('code', { class: 'chip ghost' }, k))),
           h('p', { class: 'k', style: 'margin-top:10px' }, 'constants: ' + Object.entries(tr.constants || {}).map(([k, v]) => k + ' = ' + v).join(', '))) : h('p', { class: 'muted' }, 'Run a scenario to list the score lines and constants it used.')),
-      h('div', { class: 'panel pad' }, h('div', { class: 'sect', style: 'margin-top:0' }, 'promises'),
-        h('p', { style: 'margin:0 0 12px' }, 'Hard constraints are never relaxed silently. If one can’t be met you get ', h('b', {}, 'Can’t assemble'), ', or a critical warning that names it.'),
-        h('p', { style: 'margin:0 0 12px' }, 'No clock and no randomness: run it twice and the JSON is identical.'),
-        h('p', { class: 'k', style: 'margin:0' }, 'engine ' + (hd.engine_version || '') + ' · knowledge base ' + (hd.kb_version || '')))),
-    sheetFoot('How it decides · the line'));
-  wireLine(runBtn, stations);
+      h('div', { class: 'panel pad tw-promise' }, h('div', { class: 'sect', style: 'margin-top:0' }, 'promises'),
+        h('p', {}, 'Hard constraints are never relaxed silently. If one can’t be met you get ', h('b', {}, 'Can’t assemble'), ', or a critical warning that names it.'),
+        h('p', {}, 'No clock and no randomness: run it twice and the JSON is identical.'),
+        h('p', {}, 'No language model chooses or explains a part: every sentence above is assembled from the trace.'),
+        h('p', { class: 'k' }, 'engine ' + (hd.engine_version || '') + ' · knowledge base ' + (hd.kb_version || '')))),
+    sheetFoot('How it decides · the tower'));
+  wireLine(runBtn, tower);
 }
-/* one answer down the line: the crate is the lead; each station reacts on the crate's arrival */
-function wireLine(btn, stationsEl) {
-  const svg = $('#line svg'), cr = $('#crate'), cards = [...stationsEl.children];
-  const bars = $('#ln-bars'), plat = $('#ln-plat'), arm = $('#ln-arm'), tag = $('#ln-tag'), needle = $('#ln-gauge .needle');
-  const aB = +$('#ln-gauge .gauge').dataset.budgetAngle;
-  const OUT = 'cubic-bezier(.23,1,.32,1)', IO = 'cubic-bezier(.77,0,.175,1)';
-  let runId = 0;
-  const lit = (i) => cards.forEach((c, j) => c.classList.toggle('lit', j === i));
-  const wait = (ms, t) => new Promise((r) => setTimeout(r, ms)).then(() => { if (t !== runId || !svg.isConnected) throw 0; });
-  const go2 = (el, kf, o, t) => el.animate(kf, Object.assign({ fill: 'forwards' }, o)).finished.then(() => { if (t !== runId) throw 0; });
-  const stopAll = () => [cr, bars, plat, arm, tag, needle].forEach((e) => e && e.getAnimations().forEach((a) => a.cancel()));
-  const X = (x) => `translateX(${x}px)`;
-  btn.onclick = async () => {
-    const t = ++runId; stopAll();
-    if (reduce()) { try { for (let i = 0; i < 5; i++) { lit(i); await wait(700, t); } lit(-1); } catch (e) { /* interrupted */ } return; }
-    try {
-      lit(0); tag.animate([{ opacity: 0 }], { duration: 0, fill: 'forwards' });
-      await go2(cr, [{ transform: 'translate(0,-70px)', opacity: 0 }, { transform: 'translate(0,0)', opacity: 1 }], { duration: 320, easing: OUT }, t);
-      await wait(60, t);
-      bars.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-14px)' }], { duration: 200, delay: 380, easing: OUT, fill: 'forwards' });
-      await go2(cr, [{ transform: X(0) }, { transform: X(280) }], { duration: 560, easing: IO }, t);
-      lit(1);
-      bars.animate([{ transform: 'translateY(-14px)' }, { transform: 'translateY(0)' }], { duration: 220, delay: 120, easing: IO, fill: 'forwards' });
-      await wait(260, t);
-      await go2(cr, [{ transform: X(280) }, { transform: X(520) }], { duration: 520, easing: IO }, t);
-      lit(2);
-      plat.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(4px)', offset: .35 }, { transform: 'translateY(0)' }], { duration: 420, easing: OUT });
-      cr.animate([{ transform: X(520) }, { transform: 'translate(520px,4px)', offset: .35 }, { transform: X(520) }], { duration: 420, easing: OUT });
-      await go2(needle, [{ transform: 'rotate(-120deg)' }, { transform: `rotate(${aB}deg)` }], { duration: 600, easing: OUT }, t);
-      await wait(200, t);
-      await go2(cr, [{ transform: X(520) }, { transform: X(750) }], { duration: 480, easing: IO }, t);
-      lit(3);
-      await go2(arm, [{ transform: 'translateY(0)' }, { transform: 'translateY(18px)' }], { duration: 160, easing: IO }, t);
-      FB.fxAt(svg, 830, 250, { n: 12, px: 26, py: 30 });
-      await go2(arm, [{ transform: 'translateY(18px)' }, { transform: 'translateY(0)' }], { duration: 220, delay: 120, easing: OUT }, t);
-      await go2(cr, [{ transform: X(750), opacity: 1 }, { transform: X(940), opacity: 1, offset: .7 }, { transform: X(980), opacity: 0 }], { duration: 440, easing: IO }, t);
-      lit(4);
-      await go2(tag, [{ transform: 'translateX(-36px)', opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }], { duration: 280, easing: OUT }, t);
-      await wait(900, t);
-      cr.getAnimations().forEach((a) => a.cancel());
-      cr.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease' });
-      lit(-1);
-    } catch (e) { /* interrupted by a new run or a screen change */ }
+/* the tower plays level by level as each row scrolls in; reduced motion and ?shot=1 show the final frame, still */
+function wireLine(btn, tower) {
+  const svg = $('svg.tower-art', tower), rows = $$('.tw-row', tower);
+  const played = new Set();
+  const lv = (i) => $$('.lv[data-lv="' + i + '"]' + (i === 1 ? ',.tw-rejs' : ''), svg);
+  const playRow = (i, t0 = 0) => { played.add(i); rows[i].classList.add('on'); lv(i).forEach((g) => g.classList.add('on')); Tower.play(svg, i, t0); };
+  if (!motionOK()) { rows.forEach((r) => r.classList.add('on')); btn.hidden = true; return; }
+  tower.classList.add('armed');
+  const io = new IntersectionObserver((ents) => ents.forEach((e) => {
+    if (!e.isIntersecting) return; const i = +e.target.dataset.i; io.unobserve(e.target);
+    if (!played.has(i)) playRow(i);
+  }), { rootMargin: '0px 0px -22% 0px', threshold: 0.35 });
+  rows.forEach((r) => io.observe(r));
+  /* replay: everything resets, then the levels run top to bottom with a beat between */
+  btn.onclick = () => {
+    Tower.stop(svg); rows.forEach((r) => { io.unobserve(r); r.classList.remove('on'); });
+    void tower.offsetWidth;
+    rows.forEach((r, i) => setTimeout(() => { if (tower.isConnected) r.classList.add('on'); }, i * 650));
+    rows.forEach((r, i) => { played.add(i); lv(i).forEach((g) => g.classList.add('on')); Tower.play(svg, i, i * 650); });
   };
 }
 

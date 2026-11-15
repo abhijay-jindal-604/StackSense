@@ -292,18 +292,7 @@ td.fix{color:var(--ink)}
 [data-theme=print] .kb-drawer{background:var(--soot);box-shadow:inset 0 0 0 2px var(--ink)}
 [data-theme=print] .kb-plate,[data-theme=print] .kb-plate.l{box-shadow:inset 0 0 0 2px #1A1611}
 
-/* ===================== HOW IT DECIDES ===================== */
-.line{background:var(--wall);box-shadow:inset 0 0 0 1px var(--line);position:relative;overflow:hidden}
-.line>svg{display:block;width:100%;height:auto}
-.stations{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--soot);box-shadow:inset 0 0 0 1px var(--line)}
-.stations div{padding:16px 18px 18px;box-shadow:inset -1px 0 0 var(--line)}
-.stations div:last-child{box-shadow:none}
-.stations b{display:block;font:400 18px/1.1 var(--disp);margin:8px 0 6px}
-.stations p{margin:0;color:var(--muted);font-size:13.5px}
-.stations div{transition:background-color 150ms ease}
-.stations div.lit{background:var(--soot-3)}.stations div.lit b{color:var(--weld-ink)}
-#ln-gauge .needle{transform-box:view-box;transform-origin:0 0}
-.crate{transform-box:fill-box}
+/* ===================== HOW IT DECIDES: see about.css (the sorting tower) ===================== */
 
 @media (prefers-reduced-motion:reduce){.crackle{animation:none}}
 @media (max-width:1100px){

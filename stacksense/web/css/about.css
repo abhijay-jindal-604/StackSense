@@ -1,0 +1,47 @@
+/* How it decides: the sorting tower (js/tower.js). One grid: the tower art spans five rows on the left;
+   each row holds a leader line and the label card for its level, so labels never sit on the art. */
+.tower{--tw:540px;--rh:calc(var(--tw) * 236 / 540);--off:calc(var(--rh) * .12);
+  position:relative;display:grid;grid-template-columns:var(--tw) minmax(40px,1fr) minmax(0,600px);grid-template-rows:repeat(5,var(--rh));
+  background:var(--wall);box-shadow:inset 0 0 0 1px var(--line);margin-top:8px}
+.tw-art{grid-column:1;grid-row:1/-1;position:relative;overflow:hidden;align-self:stretch}
+.tw-art>svg{display:block;width:100%;height:auto}
+.tw-art .grain{z-index:1}
+.tw-row{grid-column:2/4;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;padding-right:24px}
+.tw-lead{grid-column:1;position:relative;margin-left:-18px;margin-top:calc(var(--off) + 21px);height:2px;background:var(--line-2);transform-origin:right center}
+.tw-lead:before{content:"";position:absolute;left:-2px;top:-5px;border:6px solid transparent;border-right:9px solid var(--line-2);border-left:0}
+.tw-card{grid-column:2;margin-top:var(--off);min-width:0;background:var(--soot);box-shadow:inset 0 0 0 1px var(--line)}
+.tw-bar{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;background:var(--bar,#EDE6D6);color:#11161D;box-shadow:4px 4px 0 var(--weld),inset 0 0 0 2px #0B0F14}
+.tw-bar b{font:400 19px/1 var(--disp);letter-spacing:.01em}
+.tw-bar .tag{box-shadow:inset 0 0 0 1.5px #0B0F14}
+.tw-card.c0{--bar:#EDE6D6}.tw-card.c1,.tw-card.c2{--bar:#F3B53A}.tw-card.c3{--bar:#A9B3BE}.tw-card.c4{--bar:#EDE6D6}
+.tw-body{padding:12px 14px 14px}
+.tw-body p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.45}
+.tw-body .tw-fact{margin-top:8px;color:var(--ink);font:500 12.5px/1.45 var(--mono)}
+.tw-body .chips{margin-top:8px}
+.tw-body .chip{font-size:11.5px}
+.tw-src{margin:-14px 0 14px}
+.tw-cols{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);margin-top:28px;align-items:start}
+.tw-tab{width:100%;border-collapse:collapse}
+.tw-tab td{padding:6px 8px 6px 0;vertical-align:top;box-shadow:inset 0 -1px 0 var(--line)}
+.tw-tab td.mono{font-family:var(--mono);text-align:right;white-space:nowrap;padding-right:0}
+.tw-tab tr:last-child td{box-shadow:none;padding-top:10px}
+.tw-promise p{margin:0 0 12px}
+.tw-promise p:last-child{margin:0}
+
+/* scroll choreography: armed only when motion is allowed; until a row plays, its card waits and its moving pieces hide */
+.tower.armed .tw-card{transition:transform 320ms var(--ease-out),opacity 320ms var(--ease-out)}
+.tower.armed .tw-lead{transition:transform 260ms var(--ease-out)}
+.tower.armed .tw-row:not(.on) .tw-card{opacity:0;transform:translateX(14px)}
+.tower.armed .tw-row:not(.on) .tw-lead{transform:scaleX(0)}
+.tower.armed .tw-row.on .tw-card{transition-delay:200ms}
+.tower.armed .lv:not(.on) :is(.tw-slip,.tw-pass,.tw-lasers,.tw-ok,.tw-coin,.tw-bot,.tw-ride),.tower.armed .tw-rejs:not(.on){opacity:0}
+.tower.armed .tw-row.on .tw-lead,.tower.armed .tw-row.on .tw-card{transform:none;opacity:1}
+
+@media (max-width:1240px){.tower{--tw:460px}}
+[data-shot] .tower{--tw:460px}
+
+/* print sheet: steel on cream, ink rules */
+[data-theme=print] .tower{box-shadow:inset 0 0 0 2px var(--ink)}
+[data-theme=print] .tw-card{box-shadow:inset 0 0 0 1.5px var(--ink)}
+[data-theme=print] .tw-lead,[data-theme=print] .tw-lead:before{background:var(--ink)}
+[data-theme=print] .tw-lead:before{background:none;border-right-color:var(--ink)}
